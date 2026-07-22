@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.env
+.env.*
+*.log
+.idea/
+.vscode/
+*.iml
+*.tmp
+*.temp
+*.ps1
+*.bat

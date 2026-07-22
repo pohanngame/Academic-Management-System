@@ -1,0 +1,44 @@
+:root {
+  color: #1f2937;
+  background: #f5f7fb;
+  font-family: Arial, "Microsoft YaHei", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+}
+
+a {
+  color: inherit;
+}
+
+.el-form-item__label,
+.el-dialog__title,
+.el-dialog__header,
+.el-dialog__footer,
+.el-card__header,
+.el-upload,
+.el-upload__tip,
+.el-checkbox__label,
+.el-switch__label {
+  cursor: default;
+}
+
+.el-button:not(.is-disabled),
+.el-checkbox:not(.is-disabled),
+.el-switch:not(.is-disabled) {
+  cursor: pointer;
+}
+
+input,
+textarea,
+select,
+.el-input__inner,
+.el-textarea__inner {
+  cursor: text;
+}

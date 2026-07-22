@@ -1,0 +1,33 @@
+# Operating system
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# Java / Maven
+backend/target/
+*.class
+
+# Node / Vite
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+application-local.yml
+
+# Runtime data
+data/
+uploads/
+exports/
+temp/
+logs/
+
+# Docker
+docker/mysql/

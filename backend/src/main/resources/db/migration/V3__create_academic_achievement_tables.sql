@@ -1,0 +1,101 @@
+CREATE TABLE `project` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `teacher_id` BIGINT NOT NULL,
+    `project_name` VARCHAR(255) NOT NULL,
+    `source` VARCHAR(255) NULL,
+    `role` VARCHAR(128) NULL,
+    `start_date` DATE NULL,
+    `end_date` DATE NULL,
+    `funding_amount` DECIMAL(15,2) NULL,
+    `status` VARCHAR(64) NULL,
+    `description` TEXT NULL,
+    `sort_order` INT NOT NULL DEFAULT 0,
+    `is_public` TINYINT(1) NOT NULL DEFAULT 1,
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_project_teacher_sort` (`teacher_id`, `sort_order`),
+    CONSTRAINT `fk_project_teacher` FOREIGN KEY (`teacher_id`) REFERENCES `teacher_profile` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `teaching_course` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `teacher_id` BIGINT NOT NULL,
+    `course_name` VARCHAR(255) NOT NULL,
+    `semester` VARCHAR(128) NULL,
+    `class_name` VARCHAR(255) NULL,
+    `teaching_target` VARCHAR(255) NULL,
+    `hours` DECIMAL(8,2) NULL,
+    `description` TEXT NULL,
+    `sort_order` INT NOT NULL DEFAULT 0,
+    `is_public` TINYINT(1) NOT NULL DEFAULT 1,
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_teaching_course_teacher_sort` (`teacher_id`, `sort_order`),
+    CONSTRAINT `fk_teaching_course_teacher` FOREIGN KEY (`teacher_id`) REFERENCES `teacher_profile` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `paper` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `teacher_id` BIGINT NOT NULL,
+    `title` VARCHAR(500) NOT NULL,
+    `authors` TEXT NULL,
+    `publication_name` VARCHAR(255) NULL,
+    `publication_type` VARCHAR(64) NULL,
+    `publish_year` INT NULL,
+    `doi` VARCHAR(255) NULL,
+    `volume` VARCHAR(64) NULL,
+    `issue` VARCHAR(64) NULL,
+    `pages` VARCHAR(64) NULL,
+    `publisher` VARCHAR(255) NULL,
+    `url` VARCHAR(1024) NULL,
+    `abstract_text` TEXT NULL,
+    `keywords` VARCHAR(1000) NULL,
+    `sort_order` INT NOT NULL DEFAULT 0,
+    `is_public` TINYINT(1) NOT NULL DEFAULT 1,
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_paper_teacher_sort` (`teacher_id`, `sort_order`),
+    KEY `idx_paper_teacher_year` (`teacher_id`, `publish_year`),
+    KEY `idx_paper_teacher_doi` (`teacher_id`, `doi`),
+    CONSTRAINT `fk_paper_teacher` FOREIGN KEY (`teacher_id`) REFERENCES `teacher_profile` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `patent` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `teacher_id` BIGINT NOT NULL,
+    `patent_name` VARCHAR(255) NOT NULL,
+    `patent_number` VARCHAR(128) NULL,
+    `patent_type` VARCHAR(128) NULL,
+    `status` VARCHAR(64) NULL,
+    `application_date` DATE NULL,
+    `authorization_date` DATE NULL,
+    `inventors` TEXT NULL,
+    `description` TEXT NULL,
+    `sort_order` INT NOT NULL DEFAULT 0,
+    `is_public` TINYINT(1) NOT NULL DEFAULT 1,
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_patent_teacher_sort` (`teacher_id`, `sort_order`),
+    CONSTRAINT `fk_patent_teacher` FOREIGN KEY (`teacher_id`) REFERENCES `teacher_profile` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE `certificate` (
+    `id` BIGINT NOT NULL AUTO_INCREMENT,
+    `teacher_id` BIGINT NOT NULL,
+    `certificate_name` VARCHAR(255) NOT NULL,
+    `certificate_type` VARCHAR(128) NULL,
+    `issuing_authority` VARCHAR(255) NULL,
+    `issue_date` DATE NULL,
+    `description` TEXT NULL,
+    `sort_order` INT NOT NULL DEFAULT 0,
+    `is_public` TINYINT(1) NOT NULL DEFAULT 1,
+    `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    KEY `idx_certificate_teacher_sort` (`teacher_id`, `sort_order`),
+    CONSTRAINT `fk_certificate_teacher` FOREIGN KEY (`teacher_id`) REFERENCES `teacher_profile` (`id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

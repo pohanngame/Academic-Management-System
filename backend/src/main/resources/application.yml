@@ -1,0 +1,53 @@
+server:
+  port: ${SERVER_PORT:8080}
+
+spring:
+  application:
+    name: academic-profile-backend
+  datasource:
+    url: ${DB_URL:jdbc:mysql://127.0.0.1:3306/academic_profile?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai}
+    username: ${DB_USERNAME:academic_profile_user}
+    password: ${DB_PASSWORD:}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  servlet:
+    multipart:
+      max-file-size: ${SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE:20MB}
+      max-request-size: ${SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE:20MB}
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+
+app:
+  files:
+    upload-dir: ${APP_UPLOAD_DIR:./data/uploads}
+    export-dir: ${APP_EXPORT_DIR:./data/exports}
+    temp-dir: ${APP_TEMP_DIR:./data/temp}
+    max-upload-size: ${APP_MAX_UPLOAD_SIZE:10MB}
+  security:
+    jwt-secret: ${APP_JWT_SECRET:change-me-in-environment}
+    jwt-expiration-minutes: ${APP_JWT_EXPIRATION_MINUTES:120}
+  ai:
+    provider: ${AI_PROVIDER:deepseek}
+    base-url: ${AI_BASE_URL:https://api.deepseek.com}
+    api-key: ${AI_API_KEY:}
+    model: ${AI_MODEL:deepseek-v4-flash}
+    max-tokens: ${AI_MAX_TOKENS:1024}
+    max-prompt-chars: ${AI_MAX_PROMPT_CHARS:30000}
+    timeout-seconds: ${AI_TIMEOUT_SECONDS:60}
+  document-conversion:
+    enabled: ${DOCUMENT_CONVERSION_ENABLED:false}
+    base-url: ${DOCUMENT_CONVERSION_BASE_URL:http://127.0.0.1:3000}
+    connect-timeout-seconds: ${DOCUMENT_CONVERSION_CONNECT_TIMEOUT_SECONDS:5}
+    timeout-seconds: ${DOCUMENT_CONVERSION_TIMEOUT_SECONDS:70}
+    max-input-size: ${DOCUMENT_CONVERSION_MAX_INPUT_SIZE:15MB}
+    max-output-size: ${DOCUMENT_CONVERSION_MAX_OUTPUT_SIZE:20MB}
+  ocr:
+    enabled: ${OCR_ENABLED:false}
+    base-url: ${OCR_BASE_URL:http://127.0.0.1:8866}
+    timeout-seconds: ${OCR_TIMEOUT_SECONDS:60}
+    min-pdf-text-length: ${OCR_MIN_PDF_TEXT_LENGTH:80}
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html

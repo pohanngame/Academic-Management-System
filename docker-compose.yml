@@ -1,0 +1,179 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: academic-profile-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:${MYSQL_PORT:-3306}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$${MYSQL_PASSWORD}\" mysqladmin ping -h 127.0.0.1 -u\"$${MYSQL_USER}\" --silent"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  backend:
+    profiles:
+      - full
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        HTTP_PROXY: "${BUILD_HTTP_PROXY:-}"
+        HTTPS_PROXY: "${BUILD_HTTPS_PROXY:-}"
+        ALL_PROXY: "${BUILD_ALL_PROXY:-}"
+        http_proxy: "${BUILD_HTTP_PROXY:-}"
+        https_proxy: "${BUILD_HTTPS_PROXY:-}"
+        all_proxy: "${BUILD_ALL_PROXY:-}"
+    container_name: academic-profile-backend
+    restart: unless-stopped
+    environment:
+      DB_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-academic_profile}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+      DB_USERNAME: ${MYSQL_USER:-academic_profile_user}
+      DB_PASSWORD: ${MYSQL_PASSWORD:-}
+      APP_JWT_SECRET: ${APP_JWT_SECRET:-}
+      APP_JWT_EXPIRATION_MINUTES: ${APP_JWT_EXPIRATION_MINUTES:-120}
+      APP_UPLOAD_DIR: /app/data/uploads
+      APP_EXPORT_DIR: /app/data/exports
+      APP_TEMP_DIR: /app/data/temp
+      APP_MAX_UPLOAD_SIZE: ${APP_MAX_UPLOAD_SIZE:-10MB}
+      AI_PROVIDER: ${AI_PROVIDER:-deepseek}
+      AI_BASE_URL: ${AI_BASE_URL:-https://api.deepseek.com}
+      AI_MODEL: ${AI_MODEL:-deepseek-chat}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-60}
+      OCR_ENABLED: "true"
+      OCR_BASE_URL: http://paddleocr:8866
+      OCR_TIMEOUT_SECONDS: ${OCR_TIMEOUT_SECONDS:-60}
+      OCR_MIN_PDF_TEXT_LENGTH: ${OCR_MIN_PDF_TEXT_LENGTH:-80}
+      DOCUMENT_CONVERSION_ENABLED: "true"
+      DOCUMENT_CONVERSION_BASE_URL: http://libreoffice:3000
+      DOCUMENT_CONVERSION_CONNECT_TIMEOUT_SECONDS: ${DOCUMENT_CONVERSION_CONNECT_TIMEOUT_SECONDS:-5}
+      DOCUMENT_CONVERSION_TIMEOUT_SECONDS: ${DOCUMENT_CONVERSION_TIMEOUT_SECONDS:-70}
+      DOCUMENT_CONVERSION_MAX_INPUT_SIZE: ${DOCUMENT_CONVERSION_MAX_INPUT_SIZE:-15MB}
+      DOCUMENT_CONVERSION_MAX_OUTPUT_SIZE: ${DOCUMENT_CONVERSION_MAX_OUTPUT_SIZE:-20MB}
+    expose:
+      - "8080"
+    volumes:
+      - backend-data:/app/data
+    depends_on:
+      mysql:
+        condition: service_healthy
+      paddleocr:
+        condition: service_healthy
+      libreoffice:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:8080/api/health > /dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  frontend:
+    profiles:
+      - full
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        HTTP_PROXY: "${BUILD_HTTP_PROXY:-}"
+        HTTPS_PROXY: "${BUILD_HTTPS_PROXY:-}"
+        ALL_PROXY: "${BUILD_ALL_PROXY:-}"
+        http_proxy: "${BUILD_HTTP_PROXY:-}"
+        https_proxy: "${BUILD_HTTPS_PROXY:-}"
+        all_proxy: "${BUILD_ALL_PROXY:-}"
+    container_name: academic-profile-frontend
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-8088}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u http_proxy -u https_proxy -u all_proxy wget --spider --quiet http://127.0.0.1/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+
+  paddleocr:
+    image: paddleocr-service:local
+    profiles:
+      - ocr
+      - full
+    build:
+      context: ./docker/paddleocr
+      args:
+        HTTP_PROXY: "${OCR_HTTP_PROXY:-}"
+        HTTPS_PROXY: "${OCR_HTTPS_PROXY:-}"
+        ALL_PROXY: "${OCR_ALL_PROXY:-}"
+        http_proxy: "${OCR_HTTP_PROXY:-}"
+        https_proxy: "${OCR_HTTPS_PROXY:-}"
+        all_proxy: "${OCR_ALL_PROXY:-}"
+    container_name: academic-profile-paddleocr
+    restart: unless-stopped
+    environment:
+      HTTP_PROXY: "${OCR_HTTP_PROXY:-}"
+      HTTPS_PROXY: "${OCR_HTTPS_PROXY:-}"
+      ALL_PROXY: "${OCR_ALL_PROXY:-}"
+      http_proxy: "${OCR_HTTP_PROXY:-}"
+      https_proxy: "${OCR_HTTPS_PROXY:-}"
+      all_proxy: "${OCR_ALL_PROXY:-}"
+    ports:
+      - "127.0.0.1:${OCR_PORT:-8866}:8866"
+    volumes:
+      - paddleocr_models:/root/.paddlex
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8866/openapi.json', timeout=5).read()"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 300s
+
+  libreoffice:
+    profiles:
+      - document
+      - full
+    build:
+      context: ./docker/libreoffice
+      args:
+        HTTP_PROXY: "${BUILD_HTTP_PROXY:-}"
+        HTTPS_PROXY: "${BUILD_HTTPS_PROXY:-}"
+        ALL_PROXY: "${BUILD_ALL_PROXY:-}"
+        http_proxy: "${BUILD_HTTP_PROXY:-}"
+        https_proxy: "${BUILD_HTTPS_PROXY:-}"
+        all_proxy: "${BUILD_ALL_PROXY:-}"
+    container_name: academic-profile-libreoffice
+    restart: unless-stopped
+    environment:
+      API_BODY_LIMIT: "${LIBREOFFICE_API_BODY_LIMIT:-20MB}"
+      API_TIMEOUT: "${LIBREOFFICE_API_TIMEOUT:-60s}"
+      LIBREOFFICE_AUTO_START: "${LIBREOFFICE_AUTO_START:-true}"
+      LIBREOFFICE_START_TIMEOUT: "${LIBREOFFICE_START_TIMEOUT:-20s}"
+      LIBREOFFICE_MAX_QUEUE_SIZE: "${LIBREOFFICE_MAX_QUEUE_SIZE:-4}"
+      LIBREOFFICE_RESTART_AFTER: "${LIBREOFFICE_RESTART_AFTER:-10}"
+    ports:
+      - "127.0.0.1:${LIBREOFFICE_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent --show-error http://127.0.0.1:3000/health > /dev/null"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+volumes:
+  mysql-data:
+  paddleocr_models:
+  backend-data:

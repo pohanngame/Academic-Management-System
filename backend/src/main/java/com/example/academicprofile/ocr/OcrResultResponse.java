@@ -1,0 +1,73 @@
+package com.example.academicprofile.ocr;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+
+public record OcrResultResponse(
+        Long id,
+        Long taskId,
+        String targetType,
+        String status,
+        BigDecimal confidence,
+        String title,
+        String authors,
+        String publicationName,
+        String publicationType,
+        Integer publishYear,
+        String doi,
+        String volume,
+        String issue,
+        String pages,
+        String publisher,
+        String url,
+        String abstractText,
+        String keywords,
+        String patentName,
+        String patentNumber,
+        String patentType,
+        String patentStatus,
+        LocalDate applicationDate,
+        LocalDate authorizationDate,
+        String inventors,
+        String certificateName,
+        String certificateType,
+        String issuingAuthority,
+        LocalDate issueDate,
+        String description,
+        Long createdRecordId) {
+
+    public static OcrResultResponse from(OcrResult item) {
+        return new OcrResultResponse(
+                item.getId(),
+                item.getTaskId(),
+                item.getTargetType(),
+                item.getStatus(),
+                item.getConfidence(),
+                item.getTitle(),
+                item.getAuthors(),
+                item.getPublicationName(),
+                item.getPublicationType(),
+                item.getPublishYear(),
+                item.getDoi(),
+                item.getVolume(),
+                item.getIssue(),
+                item.getPages(),
+                item.getPublisher(),
+                item.getUrl(),
+                item.getAbstractText(),
+                item.getKeywords(),
+                item.getPatentName(),
+                item.getPatentNumber(),
+                item.getPatentType(),
+                item.getPatentStatus(),
+                item.getApplicationDate(),
+                item.getAuthorizationDate(),
+                item.getInventors(),
+                item.getCertificateName(),
+                item.getCertificateType(),
+                item.getIssuingAuthority(),
+                item.getIssueDate(),
+                item.getDescription(),
+                item.getCreatedRecordId());
+    }
+}

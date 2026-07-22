@@ -1,0 +1,13 @@
+target/
+data/
+*.log
+.env
+.env.*
+.idea/
+.vscode/
+*.iml
+*.tmp
+*.temp
+*.ps1
+*.bat
+docker-compose*.yml
