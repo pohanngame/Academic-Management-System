@@ -6,9 +6,10 @@
 
 1. 先看根目录 [README.md](../README.md)，完成配置、启动和首次使用。
 2. 需要操作 Docker 时看 [docker/README.md](../docker/README.md)。
-3. 需要修改后端时看 `backend/src/main/java/com/example/academicprofile/`。
-4. 需要修改前端时看 `frontend/src/`。
-5. 需要了解数据库时只读查看 `backend/src/main/resources/db/migration/`。
+3. 需要在 Linux 服务器生产部署时看 [Linux 生产部署说明](linux-production-deployment.md)。
+4. 需要修改后端时看 `backend/src/main/java/com/example/academicprofile/`。
+5. 需要修改前端时看 `frontend/src/`。
+6. 需要了解数据库时只读查看 `backend/src/main/resources/db/migration/`。
 
 本目录用于集中存放需求、架构、接口、部署和验收类文档。根 README 是面向使用者的主手册，本 README 是面向维护者的导航。
 

@@ -4,6 +4,8 @@
 
 下面的步骤适用于 Windows 电脑。所有命令都在项目根目录执行，也就是能看到 `docker-compose.yml` 的目录。
 
+> Linux 服务器生产部署请阅读 [Linux 生产部署说明](docs/linux-production-deployment.md)。该说明保留当前 Compose 的本机端口边界，并通过宿主机 HTTPS 反向代理提供公网访问。
+
 ### 1. 准备软件
 
 1. 安装并启动 Docker Desktop。
