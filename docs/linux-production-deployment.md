@@ -76,8 +76,6 @@ chmod 600 .env
 | `MYSQL_PASSWORD` | 使用独立的高强度密码 | backend 连接业务数据库。 |
 | `MYSQL_ROOT_PASSWORD` | 使用与普通账号不同的高强度密码 | 保护 MySQL 管理员账号。 |
 | `APP_JWT_SECRET` | 使用至少 32 个随机字符，部署后不要随意更换 | 用于验证登录令牌；更换后现有登录会失效。 |
-| `AI_MODEL` | 填写已在供应商账号中确认可用的模型名 | Compose、示例配置与后端默认值不应靠猜测。 |
-| `AI_API_KEY` | 仅在需要 AI 功能时填写自己的生产 Key | 该值由 Compose 注入 backend，绝不提交 Git。 |
 
 可以使用受信任的密码管理器生成密钥。若服务器安装了 OpenSSL，也可生成 JWT 密钥：
 
@@ -85,7 +83,9 @@ chmod 600 .env
 openssl rand -hex 48
 ```
 
-将生成结果写入 `.env` 的 `APP_JWT_SECRET`。不要把真实 `.env` 发到聊天、工单、日志或截图中。`chmod 600` 的作用是阻止同一台服务器上的其他普通账号读取数据库密码、JWT 密钥和 AI Key。
+将生成结果写入 `.env` 的 `APP_JWT_SECRET`。不要把真实 `.env` 发到聊天、工单、日志或截图中。`chmod 600` 的作用是阻止同一台服务器上的其他普通账号读取数据库密码和 JWT 密钥。
+
+第三方 AI 的服务商、Base URL、模型名称和 API Key 不再写入 `.env`。系统启动后，每位教师登录并在“AI 模型设置”中独立保存和测试自己的配置。数据库只保存 API Key 密文；真实 Key 不会回显。
 
 完整 Compose 模式会在容器内强制使用 `mysql`、`paddleocr` 和 `libreoffice` 服务名，因此不需要把 `DB_URL`、`OCR_BASE_URL` 或 `DOCUMENT_CONVERSION_BASE_URL` 改成服务器 IP。
 
@@ -109,6 +109,13 @@ curl --fail http://127.0.0.1:8088/api/health
 ```
 
 两个命令都返回成功，才继续配置公网入口。`8088` 只用于本机反向代理和本机健康检查，不是公网访问地址。
+
+首次使用 AI 时，教师应登录系统，打开“AI 模型设置”，填写可信的 HTTPS OpenAI-compatible 地址、实际模型名称和自己的 API Key，保存后再执行连接测试。连接测试可能产生极少量调用费用。
+
+首次 `SUPER_ADMIN` 不会自动创建，也没有公网初始化接口。按
+[超级管理员指南](super-admin-guide.md) 的一次性 bootstrap 流程，只在部署终端临时导出变量，
+使用 `docker compose run -e` 显式传给 one-off backend 容器，完成后立即 `unset`。普通注册始终是
+`TEACHER`；第二名管理员由已登录超级管理员在系统管理页提升。
 
 ## 6. 配置 HTTPS 公网入口
 
@@ -161,7 +168,7 @@ docker compose --profile full ps
 
 - MySQL 数据：`mysql-data`。
 - OCR 模型：`paddleocr_models`。
-- 上传、导出和临时文件：`backend-data`。
+- 上传、导出、临时文件和 AI 配置加密主密钥：`backend-data`。
 
 Docker 会给实际 volume 名加入 Compose 项目前缀。先查看真实名称：
 
@@ -169,17 +176,22 @@ Docker 会给实际 volume 名加入 Compose 项目前缀。先查看真实名�
 docker volume ls
 ```
 
-MySQL 应定期导出逻辑备份，并确认备份文件不为空：
+定期由 `SUPER_ADMIN` 在 HTTPS 页面“系统管理 → 数据备份”重新输入当前密码并创建完整迁移包。
+包同时包含 MySQL 逻辑备份、uploads 和同一恢复点的 `/app/data/secrets/ai-config.key`。仅有 MySQL
+备份既不能恢复附件，也不能解密教师 AI 配置。`.apbackup` 不含 `.env` 或 JWT Secret，并且自身
+没有额外加密，下载后必须立即移到受控存储。
 
-```bash
-cd /srv/academic-profile
-mkdir -p backups
-chmod 700 backups
-docker compose exec -T mysql sh -c 'exec mysqldump --single-transaction -u"$MYSQL_USER" -p"$MYSQL_PASSWORD" "$MYSQL_DATABASE"' > "backups/mysql-$(date +%F).sql"
-test -s "backups/mysql-$(date +%F).sql"
-```
+`APP_BACKUP_MAXIMUM_DOWNLOAD_BYTES` 控制管理页可下载备份的最大字节数，默认
+`536870912`（512 MiB）。后端流式输出且不一次性载入 JVM，但当前浏览器端使用 Blob，接近上限时
+可能占用较多浏览器内存；超过上限的临时包会在返回文件正文前删除。SHA-256 只用于完整性检查，
+不提供来源认证，恢复前必须确认备份来自可信系统并经受控渠道传输。
 
-数据库备份之外，还必须备份实际名称以 `_backend-data` 结尾的 volume，因为其中保存上传附件和导出文件。备份应保存在服务器之外的受控位置，并定期在隔离测试环境中演练恢复。没有恢复验证的备份不能视为可用备份。
+恢复时必须恢复原加密主密钥。密钥丢失或不匹配时，系统会返回“AI 配置无法解密，请恢复加密密钥备份”，不会静默覆盖或删除数据库密文。不要在真实数据环境中通过删除密钥文件测试这一故障；应复制备份到隔离环境，保留原文件，再用不匹配密钥启动副本验证安全失败。备份应保存在服务器之外的受控位置，并定期在隔离测试环境中演练恢复。没有恢复验证的备份不能视为可用备份。
+
+迁移到新服务器前先运行 `scripts/restore-backup.sh --backup <受控路径> --verify-only`，再按照
+[完整迁移备份与恢复](system-backup-restore.md) 使用独立 Compose project name 恢复。在线页面
+没有覆盖恢复按钮；覆盖现有目标必须显式 `--force`、输入确认短语，且脚本会先创建安全副本。失败
+时保留/恢复原数据并返回非零退出码。
 
 严禁把备份文件、`.env` 或 Docker volume 提交 Git。正常维护时不要执行以下命令：
 

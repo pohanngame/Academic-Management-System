@@ -41,6 +41,7 @@ class AiGenerationServiceTest {
     private AiGenerationTaskMapper taskMapper;
     private AiGenerationResultMapper resultMapper;
     private AiDataCollector dataCollector;
+    private AiSettingsService settingsService;
     private AiChatClient chatClient;
     private FileStorageService fileStorageService;
     private WordTemplateService wordTemplateService;
@@ -53,17 +54,23 @@ class AiGenerationServiceTest {
         taskMapper = mock(AiGenerationTaskMapper.class);
         resultMapper = mock(AiGenerationResultMapper.class);
         dataCollector = mock(AiDataCollector.class);
+        settingsService = mock(AiSettingsService.class);
         chatClient = mock(AiChatClient.class);
         fileStorageService = mock(FileStorageService.class);
         wordTemplateService = new WordTemplateService();
         pdfConversionClient = mock(PdfConversionClient.class);
         properties = new AiProperties();
-        properties.setProvider("local-mock");
-        properties.setModel("mock-model");
+        when(settingsService.requireRuntimeConfig(anyLong()))
+                .thenAnswer(invocation -> new AiRuntimeConfig(
+                        "local-mock-" + invocation.getArgument(0),
+                        "https://203.0.113.10/v1",
+                        "mock-model-" + invocation.getArgument(0),
+                        "test-key-" + invocation.getArgument(0)));
         service = new AiGenerationService(
                 taskMapper,
                 resultMapper,
                 properties,
+                settingsService,
                 dataCollector,
                 chatClient,
                 new ObjectMapper(),
@@ -81,7 +88,7 @@ class AiGenerationServiceTest {
         when(fileStorageService.getReferencedAiWordTemplateMetadata(1L, 10L)).thenReturn(metadata);
         when(dataCollector.collect(1L, List.of("teacherProfile")))
                 .thenReturn(Map.of("teacherProfile", Map.of("displayName", "测试教师")));
-        when(chatClient.generate(anyString())).thenReturn("本地 mock 草稿");
+        when(chatClient.generate(anyString(), any(AiRuntimeConfig.class))).thenReturn("本地 mock 草稿");
 
         AtomicReference<AiGenerationTask> savedTask = new AtomicReference<>();
         AtomicReference<AiGenerationResult> savedResult = new AtomicReference<>();
@@ -105,16 +112,38 @@ class AiGenerationServiceTest {
                 new AiGenerationRequest(10L, "   ", List.of("teacherProfile")));
 
         ArgumentCaptor<String> promptCaptor = ArgumentCaptor.forClass(String.class);
-        verify(chatClient).generate(promptCaptor.capture());
+        ArgumentCaptor<AiRuntimeConfig> runtimeCaptor = ArgumentCaptor.forClass(AiRuntimeConfig.class);
+        verify(chatClient).generate(promptCaptor.capture(), runtimeCaptor.capture());
         String prompt = promptCaptor.getValue();
+        AiRuntimeConfig runtime = runtimeCaptor.getValue();
         assertTrue(prompt.contains("项目申报个人材料"));
         assertTrue(prompt.contains("代表成果"));
         assertTrue(prompt.indexOf("项目申报个人材料") < prompt.indexOf("代表成果"));
         assertFalse(prompt.contains(WordTemplateService.PLACEHOLDER));
         assertFalse(prompt.contains("补充要求："));
         assertEquals("", savedTask.get().getTemplateRequirement());
+        assertEquals("local-mock-1", savedTask.get().getProvider());
+        assertEquals("mock-model-1", savedTask.get().getModelName());
+        assertEquals("local-mock-1", runtime.providerName());
+        assertEquals("https://203.0.113.10/v1", runtime.baseUrl());
+        assertEquals("mock-model-1", runtime.modelName());
+        assertEquals("test-key-1", runtime.apiKey());
         assertEquals(10L, response.templateFileId());
         assertEquals("template.docx", response.templateFileName());
+    }
+
+    @Test
+    void missingTeacherConfigurationRejectsTaskBeforePersistence() {
+        when(settingsService.requireRuntimeConfig(2L))
+                .thenThrow(new BusinessException("请先在 AI 模型设置中完成配置"));
+
+        BusinessException exception = assertThrows(
+                BusinessException.class,
+                () -> service.createTask(2L, new AiGenerationRequest(null, "生成简介", List.of("teacherProfile"))));
+
+        assertEquals("请先在 AI 模型设置中完成配置", exception.getMessage());
+        verify(taskMapper, never()).insert(any(AiGenerationTask.class));
+        verify(chatClient, never()).generate(anyString(), any(AiRuntimeConfig.class));
     }
 
     @Test
@@ -123,7 +152,7 @@ class AiGenerationServiceTest {
                 BusinessException.class,
                 () -> service.createTask(1L, new AiGenerationRequest(null, " ", List.of("teacherProfile"))));
         verify(taskMapper, never()).insert(any(AiGenerationTask.class));
-        verify(chatClient, never()).generate(anyString());
+        verify(chatClient, never()).generate(anyString(), any(AiRuntimeConfig.class));
     }
 
     @Test
@@ -138,7 +167,7 @@ class AiGenerationServiceTest {
 
         assertTrue(exception.getMessage().contains("character limit"));
         verify(taskMapper, never()).insert(any(AiGenerationTask.class));
-        verify(chatClient, never()).generate(anyString());
+        verify(chatClient, never()).generate(anyString(), any(AiRuntimeConfig.class));
     }
 
     @Test
@@ -185,7 +214,7 @@ class AiGenerationServiceTest {
         assertTrue(file.fileName().endsWith(".pdf"));
         assertArrayEquals(pdf, file.content());
         verify(pdfConversionClient).convertDocx(any(byte[].class), eq(100L));
-        verify(chatClient, never()).generate(anyString());
+        verify(chatClient, never()).generate(anyString(), any(AiRuntimeConfig.class));
         verify(taskMapper, never()).updateById(any(AiGenerationTask.class));
         verify(resultMapper, never()).updateById(any(AiGenerationResult.class));
     }

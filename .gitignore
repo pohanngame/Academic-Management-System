@@ -16,6 +16,10 @@ frontend/node_modules/
 frontend/dist/
 frontend/.vite/
 
+# Python verification tools
+__pycache__/
+*.py[cod]
+
 # Environment and secrets
 .env
 .env.*
@@ -28,6 +32,14 @@ uploads/
 exports/
 temp/
 logs/
+*.apbackup
+database.sql
+ai-config.key
+restore-safety/
+.restore-test-runtime/
+.restore-stage-*
+.restore-rollback-*
+.restore-package-*
 
 # Docker
 docker/mysql/

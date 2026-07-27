@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useRouter } from 'vue-router'
 
 import {
   confirmAiTask,
@@ -13,6 +14,7 @@ import {
   listAiTasks,
   updateAiResult
 } from '../../services/aiGeneration'
+import { getAiSettings } from '../../services/aiSettings'
 import {
   allowedWordTemplateAccept,
   deleteFile,
@@ -22,6 +24,7 @@ import {
 } from '../../services/files'
 
 const loading = ref(false)
+const aiConfigured = ref(false)
 const generating = ref(false)
 const savingDraft = ref(false)
 const confirming = ref(false)
@@ -32,6 +35,7 @@ const tasks = ref([])
 const wordTemplates = ref([])
 const currentTask = ref(null)
 const editedContent = ref('')
+const router = useRouter()
 
 const form = reactive({
   templateFileId: null,
@@ -47,14 +51,16 @@ const requirementLabel = computed(() => form.templateFileId ? '补充生成要�
 async function loadPage() {
   loading.value = true
   try {
-    const [moduleList, taskList, templateList] = await Promise.all([
+    const [moduleList, taskList, templateList, settings] = await Promise.all([
       getAiModules(),
       listAiTasks(),
-      listFiles('AI_WORD_TEMPLATE')
+      listFiles('AI_WORD_TEMPLATE'),
+      getAiSettings()
     ])
     modules.value = moduleList
     tasks.value = taskList
     wordTemplates.value = templateList
+    aiConfigured.value = settings.configured
   } catch (error) {
     ElMessage.error(error.response?.data?.message || '加载 AI 生成页面失败')
   } finally {
@@ -67,6 +73,11 @@ async function refreshTasks() {
 }
 
 async function submitTask() {
+  if (!aiConfigured.value) {
+    ElMessage.warning('请先在 AI 模型设置中完成配置')
+    router.push('/dashboard/ai-settings')
+    return
+  }
   if (!form.templateFileId && !form.templateRequirement.trim()) {
     ElMessage.warning('未选择 Word 模板时，请输入文字生成要求')
     return
@@ -294,6 +305,19 @@ onMounted(loadPage)
       title="模板中提取出的正文结构和所选教师资料会发送给 AI；Word 文件本身不会发送。请只选择确实需要的数据范围。"
     />
 
+    <el-alert
+      v-if="!aiConfigured"
+      class="settings-alert"
+      type="warning"
+      show-icon
+      :closable="false"
+      title="当前教师尚未配置 AI 模型，完成设置后才能创建新的 AI 任务。"
+    >
+      <el-button type="primary" link @click="router.push('/dashboard/ai-settings')">
+        前往 AI 模型设置
+      </el-button>
+    </el-alert>
+
     <section class="create-panel">
       <el-form label-position="top">
         <el-alert
@@ -361,7 +385,7 @@ onMounted(loadPage)
             </el-checkbox>
           </el-checkbox-group>
         </el-form-item>
-        <el-button type="primary" :loading="generating" @click="submitTask">
+        <el-button type="primary" :loading="generating" :disabled="!aiConfigured" @click="submitTask">
           创建 AI 任务
         </el-button>
       </el-form>
@@ -455,6 +479,10 @@ p {
 }
 
 .privacy-alert {
+  margin-bottom: 18px;
+}
+
+.settings-alert {
   margin-bottom: 18px;
 }
 

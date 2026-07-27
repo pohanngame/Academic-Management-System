@@ -8,6 +8,8 @@ import {
   Notebook,
   OfficeBuilding,
   Reading,
+  Monitor,
+  Setting,
   SwitchButton,
   User
 } from '@element-plus/icons-vue'
@@ -101,6 +103,16 @@ function handleLogout() {
           <el-menu-item index="/dashboard/ai-generation">
             <el-icon><DataAnalysis /></el-icon>
             <span>AI 生成</span>
+          </el-menu-item>
+          <el-menu-item index="/dashboard/ai-settings">
+            <el-icon><Setting /></el-icon>
+            <span>AI 模型设置</span>
+          </el-menu-item>
+        </el-menu-item-group>
+        <el-menu-item-group v-if="authStore.user?.role === 'SUPER_ADMIN'" title="系统管理">
+          <el-menu-item index="/dashboard/admin">
+            <el-icon><Monitor /></el-icon>
+            <span>系统管理</span>
           </el-menu-item>
         </el-menu-item-group>
       </el-menu>

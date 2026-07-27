@@ -1,6 +1,8 @@
 package com.example.academicprofile.ai;
 
 import java.io.IOException;
+import java.io.InterruptedIOException;
+import java.net.SocketTimeoutException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -31,51 +33,29 @@ public class AiChatClient {
 
     private final AiProperties properties;
     private final ObjectMapper objectMapper;
+    private final AiBaseUrlValidator baseUrlValidator;
 
-    public AiChatClient(AiProperties properties, ObjectMapper objectMapper) {
+    public AiChatClient(
+            AiProperties properties,
+            ObjectMapper objectMapper,
+            AiBaseUrlValidator baseUrlValidator) {
         this.properties = properties;
         this.objectMapper = objectMapper;
+        this.baseUrlValidator = baseUrlValidator;
     }
 
-    public String generate(String prompt) {
-        if (!StringUtils.hasText(properties.getApiKey())) {
-            throw new BusinessException(HttpStatus.SERVICE_UNAVAILABLE, "AI API key is not configured");
-        }
+    public String generate(String prompt, AiRuntimeConfig runtimeConfig) {
+        JsonNode response = executeRequest(prompt, runtimeConfig, properties.getMaxTokens());
+        return extractGeneratedContent(response);
+    }
+
+    public AiConnectionTestResult testConnection(AiRuntimeConfig runtimeConfig) {
         try {
-            OkHttpClient client = new OkHttpClient.Builder()
-                    .retryOnConnectionFailure(false)
-                    .connectTimeout(Duration.ofSeconds(properties.getTimeoutSeconds()))
-                    .readTimeout(Duration.ofSeconds(properties.getTimeoutSeconds()))
-                    .writeTimeout(Duration.ofSeconds(properties.getTimeoutSeconds()))
-                    .build();
-            Map<String, Object> payload = Map.of(
-                    "model", properties.getModel(),
-                    "max_tokens", properties.getMaxTokens(),
-                    "temperature", 0.3,
-                    "messages", List.of(
-                            Map.of("role", "system", "content", SYSTEM_PROMPT),
-                            Map.of("role", "user", "content", prompt)));
-            Request request = new Request.Builder()
-                    .url(normalizedBaseUrl() + "/chat/completions")
-                    .header("Authorization", "Bearer " + properties.getApiKey())
-                    .post(RequestBody.create(objectMapper.writeValueAsBytes(payload), JSON))
-                    .build();
-            try (Response response = client.newCall(request).execute()) {
-                String responseBody = response.body() == null ? "" : response.body().string();
-                if (!response.isSuccessful()) {
-                    throw new BusinessException(HttpStatus.SERVICE_UNAVAILABLE,
-                            "AI request failed: HTTP " + response.code() + " " + errorSummary(responseBody));
-                }
-                String content = extractContent(responseBody);
-                if (!StringUtils.hasText(content)) {
-                    throw new BusinessException("AI response content is empty");
-                }
-                return content.trim();
-            }
+            JsonNode response = executeRequest("请只回复 OK。", runtimeConfig, 1);
+            validateConnectionResponse(response);
+            return new AiConnectionTestResult(true, "连接测试成功");
         } catch (BusinessException ex) {
-            throw ex;
-        } catch (IOException ex) {
-            throw new BusinessException(HttpStatus.SERVICE_UNAVAILABLE, "AI request failed: " + ex.getMessage());
+            return new AiConnectionTestResult(false, ex.getMessage());
         }
     }
 
@@ -83,40 +63,105 @@ public class AiChatClient {
         return SYSTEM_PROMPT.length() + (prompt == null ? 0 : prompt.length());
     }
 
-    private String extractContent(String responseBody) throws IOException {
-        JsonNode root = objectMapper.readTree(responseBody);
-        JsonNode choices = root.get("choices");
-        if (choices == null || !choices.isArray() || choices.isEmpty()) {
-            return null;
+    private JsonNode executeRequest(String prompt, AiRuntimeConfig runtimeConfig, int maxTokens) {
+        if (runtimeConfig == null || !StringUtils.hasText(runtimeConfig.apiKey())) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "请先在 AI 模型设置中完成配置");
         }
-        JsonNode message = choices.get(0).get("message");
-        return message == null || message.get("content") == null ? null : message.get("content").asText();
+        String requestUrl = baseUrlValidator.chatCompletionsUrl(runtimeConfig.baseUrl());
+        try {
+            OkHttpClient client = new OkHttpClient.Builder()
+                    .retryOnConnectionFailure(false)
+                    .followRedirects(false)
+                    .followSslRedirects(false)
+                    .connectTimeout(Duration.ofSeconds(properties.getConnectTimeoutSeconds()))
+                    .readTimeout(Duration.ofSeconds(properties.getTimeoutSeconds()))
+                    .writeTimeout(Duration.ofSeconds(properties.getTimeoutSeconds()))
+                    .callTimeout(Duration.ofSeconds(properties.getTimeoutSeconds()))
+                    .build();
+            Map<String, Object> payload = Map.of(
+                    "model", runtimeConfig.modelName(),
+                    "max_tokens", maxTokens,
+                    "temperature", 0.3,
+                    "messages", List.of(
+                            Map.of("role", "system", "content", SYSTEM_PROMPT),
+                            Map.of("role", "user", "content", prompt)));
+            Request request = new Request.Builder()
+                    .url(requestUrl)
+                    .header("Authorization", "Bearer " + runtimeConfig.apiKey())
+                    .post(RequestBody.create(objectMapper.writeValueAsBytes(payload), JSON))
+                    .build();
+            try (Response response = client.newCall(request).execute()) {
+                if (!response.isSuccessful()) {
+                    throw controlledHttpFailure(response.code());
+                }
+                String responseBody = response.body() == null ? "" : response.body().string();
+                return parseResponse(responseBody);
+            }
+        } catch (BusinessException ex) {
+            throw ex;
+        } catch (SocketTimeoutException ex) {
+            throw new BusinessException(HttpStatus.SERVICE_UNAVAILABLE, "AI 服务连接或响应超时");
+        } catch (InterruptedIOException ex) {
+            throw new BusinessException(HttpStatus.SERVICE_UNAVAILABLE, "AI 服务连接或响应超时");
+        } catch (IOException ex) {
+            throw new BusinessException(HttpStatus.SERVICE_UNAVAILABLE, "无法连接 AI 服务");
+        }
     }
 
-    private String errorSummary(String responseBody) {
-        if (!StringUtils.hasText(responseBody)) {
-            return "";
-        }
+    private JsonNode parseResponse(String responseBody) {
         try {
             JsonNode root = objectMapper.readTree(responseBody);
-            JsonNode error = root.get("error");
-            if (error != null) {
-                JsonNode message = error.get("message");
-                if (message != null && message.isTextual()) {
-                    return limit(message.asText(), 300);
-                }
+            if (root == null) {
+                throw invalidResponse();
             }
-        } catch (IOException ignored) {
+            return root;
+        } catch (IOException ex) {
+            throw invalidResponse();
         }
-        return limit(responseBody, 300);
     }
 
-    private String normalizedBaseUrl() {
-        String baseUrl = properties.getBaseUrl().trim();
-        return baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
+    private void validateConnectionResponse(JsonNode root) {
+        extractMessage(root);
     }
 
-    private String limit(String value, int maxLength) {
-        return value.length() <= maxLength ? value : value.substring(0, maxLength);
+    private String extractGeneratedContent(JsonNode root) {
+        JsonNode contentNode = extractMessage(root).get("content");
+        String content = contentNode == null || contentNode.isNull() ? null : contentNode.asText();
+        if (!StringUtils.hasText(content)) {
+            throw invalidResponse();
+        }
+        return content.trim();
+    }
+
+    private JsonNode extractMessage(JsonNode root) {
+        JsonNode choices = root.get("choices");
+        if (choices == null || !choices.isArray() || choices.isEmpty()) {
+            throw invalidResponse();
+        }
+        JsonNode message = choices.get(0).get("message");
+        if (message == null || !message.isObject()) {
+            throw invalidResponse();
+        }
+        return message;
+    }
+
+    private BusinessException invalidResponse() {
+        return new BusinessException(HttpStatus.SERVICE_UNAVAILABLE, "AI 服务返回了无效响应");
+    }
+
+    private BusinessException controlledHttpFailure(int statusCode) {
+        if (statusCode == 401 || statusCode == 403) {
+            return new BusinessException(HttpStatus.SERVICE_UNAVAILABLE, "AI 服务认证失败，请检查 API Key");
+        }
+        if (statusCode == 429) {
+            return new BusinessException(HttpStatus.SERVICE_UNAVAILABLE, "AI 服务请求过于频繁，请稍后重试");
+        }
+        if (statusCode >= 500) {
+            return new BusinessException(HttpStatus.SERVICE_UNAVAILABLE, "AI 服务暂时不可用");
+        }
+        if (statusCode >= 300 && statusCode < 400) {
+            return new BusinessException(HttpStatus.SERVICE_UNAVAILABLE, "AI 服务返回了不允许的重定向");
+        }
+        return new BusinessException(HttpStatus.SERVICE_UNAVAILABLE, "AI 服务拒绝了请求");
     }
 }

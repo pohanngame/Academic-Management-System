@@ -16,6 +16,7 @@ public class UserAccount {
     private String passwordHash;
     private String role;
     private String status;
+    private Long authVersion;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -65,6 +66,14 @@ public class UserAccount {
 
     public void setStatus(String status) {
         this.status = status;
+    }
+
+    public Long getAuthVersion() {
+        return authVersion;
+    }
+
+    public void setAuthVersion(Long authVersion) {
+        this.authVersion = authVersion;
     }
 
     public LocalDateTime getCreatedAt() {

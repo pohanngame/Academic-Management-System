@@ -34,6 +34,7 @@ public class JwtService {
                 .claim("username", currentUser.username())
                 .claim("email", currentUser.email())
                 .claim("role", currentUser.role())
+                .claim("authVersion", currentUser.authVersion())
                 .issuedAt(Date.from(now))
                 .expiration(Date.from(expiresAt))
                 .signWith(signingKey())
@@ -52,7 +53,8 @@ public class JwtService {
             String username = claims.get("username", String.class);
             String email = claims.get("email", String.class);
             String role = claims.get("role", String.class);
-            return new CurrentUser(userId, teacherId, username, email, role);
+            Long authVersion = claims.get("authVersion", Number.class).longValue();
+            return new CurrentUser(userId, teacherId, username, email, role, authVersion);
         } catch (Exception ex) {
             throw new BusinessException(HttpStatus.UNAUTHORIZED, "Invalid or expired token");
         }

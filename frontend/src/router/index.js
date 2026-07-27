@@ -7,6 +7,8 @@ import LoginView from '../views/auth/LoginView.vue'
 import RegisterView from '../views/auth/RegisterView.vue'
 import AcademicRecordListView from '../views/achievements/AcademicRecordListView.vue'
 import AiGenerationView from '../views/ai/AiGenerationView.vue'
+import AiSettingsView from '../views/ai/AiSettingsView.vue'
+import AdminView from '../views/admin/AdminView.vue'
 import BibtexImportView from '../views/bibtex/BibtexImportView.vue'
 import DashboardHomeView from '../views/dashboard/DashboardHomeView.vue'
 import ExportConfigView from '../views/export/ExportConfigView.vue'
@@ -134,6 +136,17 @@ const router = createRouter({
           path: 'ai-generation',
           name: 'ai-generation',
           component: AiGenerationView
+        },
+        {
+          path: 'ai-settings',
+          name: 'ai-settings',
+          component: AiSettingsView
+        },
+        {
+          path: 'admin',
+          name: 'admin',
+          component: AdminView,
+          meta: { requiredRole: 'SUPER_ADMIN' }
         }
       ]
     }
@@ -155,6 +168,11 @@ router.beforeEach(async (to) => {
         return { name: 'login', query: { redirect: to.fullPath } }
       }
     }
+  }
+
+  const requiredRole = to.matched.map((record) => record.meta.requiredRole).find(Boolean)
+  if (requiredRole && authStore.user?.role !== requiredRole) {
+    return { name: 'dashboard' }
   }
 
   if (to.meta.guestOnly && authStore.isAuthenticated) {

@@ -1,7 +1,6 @@
 services:
   mysql:
     image: mysql:8.4
-    container_name: academic-profile-mysql
     restart: unless-stopped
     environment:
       MYSQL_DATABASE: ${MYSQL_DATABASE}
@@ -36,7 +35,6 @@ services:
         http_proxy: "${BUILD_HTTP_PROXY:-}"
         https_proxy: "${BUILD_HTTPS_PROXY:-}"
         all_proxy: "${BUILD_ALL_PROXY:-}"
-    container_name: academic-profile-backend
     restart: unless-stopped
     environment:
       DB_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-academic_profile}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
@@ -44,14 +42,18 @@ services:
       DB_PASSWORD: ${MYSQL_PASSWORD:-}
       APP_JWT_SECRET: ${APP_JWT_SECRET:-}
       APP_JWT_EXPIRATION_MINUTES: ${APP_JWT_EXPIRATION_MINUTES:-120}
+      APP_BACKUP_DUMP_TIMEOUT: ${APP_BACKUP_DUMP_TIMEOUT:-10m}
+      APP_BACKUP_DOWNLOAD_TIMEOUT: ${APP_BACKUP_DOWNLOAD_TIMEOUT:-15m}
+      APP_BACKUP_MINIMUM_FREE_BYTES: ${APP_BACKUP_MINIMUM_FREE_BYTES:-104857600}
+      APP_BACKUP_MAXIMUM_DOWNLOAD_BYTES: ${APP_BACKUP_MAXIMUM_DOWNLOAD_BYTES:-536870912}
+      APP_VERSION: ${APP_VERSION:-unknown}
+      APP_GIT_COMMIT: ${APP_GIT_COMMIT:-unknown}
       APP_UPLOAD_DIR: /app/data/uploads
       APP_EXPORT_DIR: /app/data/exports
       APP_TEMP_DIR: /app/data/temp
       APP_MAX_UPLOAD_SIZE: ${APP_MAX_UPLOAD_SIZE:-10MB}
-      AI_PROVIDER: ${AI_PROVIDER:-deepseek}
-      AI_BASE_URL: ${AI_BASE_URL:-https://api.deepseek.com}
-      AI_MODEL: ${AI_MODEL:-deepseek-chat}
-      AI_API_KEY: ${AI_API_KEY:-}
+      AI_ENCRYPTION_KEY_FILE: /app/data/secrets/ai-config.key
+      AI_CONNECT_TIMEOUT_SECONDS: ${AI_CONNECT_TIMEOUT_SECONDS:-10}
       AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-60}
       OCR_ENABLED: "true"
       OCR_BASE_URL: http://paddleocr:8866
@@ -94,7 +96,6 @@ services:
         http_proxy: "${BUILD_HTTP_PROXY:-}"
         https_proxy: "${BUILD_HTTPS_PROXY:-}"
         all_proxy: "${BUILD_ALL_PROXY:-}"
-    container_name: academic-profile-frontend
     restart: unless-stopped
     ports:
       - "127.0.0.1:${FRONTEND_PORT:-8088}:80"
@@ -122,7 +123,6 @@ services:
         http_proxy: "${OCR_HTTP_PROXY:-}"
         https_proxy: "${OCR_HTTPS_PROXY:-}"
         all_proxy: "${OCR_ALL_PROXY:-}"
-    container_name: academic-profile-paddleocr
     restart: unless-stopped
     environment:
       HTTP_PROXY: "${OCR_HTTP_PROXY:-}"
@@ -155,7 +155,6 @@ services:
         http_proxy: "${BUILD_HTTP_PROXY:-}"
         https_proxy: "${BUILD_HTTPS_PROXY:-}"
         all_proxy: "${BUILD_ALL_PROXY:-}"
-    container_name: academic-profile-libreoffice
     restart: unless-stopped
     environment:
       API_BODY_LIMIT: "${LIBREOFFICE_API_BODY_LIMIT:-20MB}"

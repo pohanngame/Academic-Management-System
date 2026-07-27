@@ -1,0 +1,102 @@
+# Isolated restore acceptance environment; never use with a production project name.
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      TZ: Asia/Shanghai
+    ports:
+      - "127.0.0.1:${MYSQL_PORT}:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$${MYSQL_PASSWORD}\" mysqladmin ping -h 127.0.0.1 -u\"$${MYSQL_USER}\" --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  backend:
+    profiles: [full]
+    image: xu-shu-xitong-backend:latest
+    environment:
+      DB_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+      DB_USERNAME: ${MYSQL_USER}
+      DB_PASSWORD: ${MYSQL_PASSWORD}
+      APP_JWT_SECRET: ${APP_JWT_SECRET}
+      APP_UPLOAD_DIR: /app/data/uploads
+      APP_EXPORT_DIR: /app/data/exports
+      APP_TEMP_DIR: /app/data/temp
+      APP_BACKUP_MINIMUM_FREE_BYTES: "0"
+      APP_BACKUP_MAXIMUM_DOWNLOAD_BYTES: "536870912"
+      AI_ENCRYPTION_KEY_FILE: /app/data/secrets/ai-config.key
+      OCR_ENABLED: "true"
+      OCR_BASE_URL: http://paddleocr:8866
+      DOCUMENT_CONVERSION_ENABLED: "true"
+      DOCUMENT_CONVERSION_BASE_URL: http://libreoffice:3000
+    volumes:
+      - backend-data:/app/data
+    depends_on:
+      mysql:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:8080/api/health > /dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 20s
+
+  frontend:
+    profiles: [full]
+    image: xu-shu-xitong-frontend:latest
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u http_proxy -u https_proxy -u all_proxy wget --spider --quiet http://127.0.0.1/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  paddleocr:
+    profiles: [full]
+    image: paddleocr-service:local
+    environment:
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""
+      http_proxy: ""
+      https_proxy: ""
+      all_proxy: ""
+    volumes:
+      - paddleocr_models:/root/.paddlex
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8866/openapi.json', timeout=5).read()"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 300s
+
+  libreoffice:
+    profiles: [full]
+    image: xu-shu-xitong-libreoffice:latest
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:3000/health > /dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+volumes:
+  mysql-data:
+  paddleocr_models:
+  backend-data:

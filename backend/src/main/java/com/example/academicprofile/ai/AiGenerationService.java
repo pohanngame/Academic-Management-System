@@ -46,6 +46,7 @@ public class AiGenerationService {
     private final AiGenerationTaskMapper taskMapper;
     private final AiGenerationResultMapper resultMapper;
     private final AiProperties properties;
+    private final AiSettingsService settingsService;
     private final AiDataCollector dataCollector;
     private final AiChatClient chatClient;
     private final ObjectMapper objectMapper;
@@ -57,6 +58,7 @@ public class AiGenerationService {
             AiGenerationTaskMapper taskMapper,
             AiGenerationResultMapper resultMapper,
             AiProperties properties,
+            AiSettingsService settingsService,
             AiDataCollector dataCollector,
             AiChatClient chatClient,
             ObjectMapper objectMapper,
@@ -66,6 +68,7 @@ public class AiGenerationService {
         this.taskMapper = taskMapper;
         this.resultMapper = resultMapper;
         this.properties = properties;
+        this.settingsService = settingsService;
         this.dataCollector = dataCollector;
         this.chatClient = chatClient;
         this.objectMapper = objectMapper;
@@ -82,6 +85,7 @@ public class AiGenerationService {
 
     @Transactional
     public AiGenerationTaskResponse createTask(Long teacherId, AiGenerationRequest request) {
+        AiRuntimeConfig runtimeConfig = settingsService.requireRuntimeConfig(teacherId);
         List<String> modules = validateModules(request.selectedModules());
         String requirement = request.templateRequirement() == null ? "" : request.templateRequirement().trim();
         WordTemplateInspection templateInspection = null;
@@ -105,14 +109,14 @@ public class AiGenerationService {
         task.setTemplateFileId(request.templateFileId());
         task.setTemplateRequirement(requirement);
         task.setSelectedModules(toJson(modules));
-        task.setProvider(properties.getProvider());
-        task.setModelName(properties.getModel());
+        task.setProvider(runtimeConfig.providerName());
+        task.setModelName(runtimeConfig.modelName());
         task.setStatus(STATUS_RUNNING);
         task.setDeleted(Boolean.FALSE);
         taskMapper.insert(task);
 
         try {
-            String draft = chatClient.generate(prompt);
+            String draft = chatClient.generate(prompt, runtimeConfig);
             AiGenerationResult result = new AiGenerationResult();
             result.setTaskId(task.getId());
             result.setTeacherId(teacherId);

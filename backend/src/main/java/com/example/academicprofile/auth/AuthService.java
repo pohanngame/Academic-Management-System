@@ -13,12 +13,11 @@ import com.example.academicprofile.teacher.TeacherProfile;
 import com.example.academicprofile.teacher.TeacherProfileService;
 import com.example.academicprofile.user.UserAccount;
 import com.example.academicprofile.user.UserAccountService;
+import com.example.academicprofile.user.UserRole;
+import com.example.academicprofile.user.UserStatus;
 
 @Service
 public class AuthService {
-
-    private static final String DEFAULT_ROLE = "TEACHER";
-    private static final String ACTIVE_STATUS = "ACTIVE";
 
     private final UserAccountService userAccountService;
     private final TeacherProfileService teacherProfileService;
@@ -52,8 +51,9 @@ public class AuthService {
         user.setUsername(request.username());
         user.setEmail(request.email());
         user.setPasswordHash(passwordEncoder.encode(request.password()));
-        user.setRole(DEFAULT_ROLE);
-        user.setStatus(ACTIVE_STATUS);
+        user.setRole(UserRole.TEACHER.name());
+        user.setStatus(UserStatus.ACTIVE.name());
+        user.setAuthVersion(0L);
         userAccountService.create(user);
 
         TeacherProfile teacherProfile = new TeacherProfile();
@@ -70,14 +70,17 @@ public class AuthService {
                 authUser.teacherId(),
                 authUser.username(),
                 authUser.email(),
-                authUser.role()));
+                authUser.role(),
+                user.getAuthVersion()));
         return new AuthResponse(token, authUser);
     }
 
     public AuthResponse login(LoginRequest request) {
         UserAccount user = userAccountService.findByUsernameOrEmail(request.usernameOrEmail())
                 .orElseThrow(() -> new BusinessException(HttpStatus.UNAUTHORIZED, "Invalid username/email or password"));
-        if (!ACTIVE_STATUS.equals(user.getStatus())) {
+        UserStatus status = UserStatus.require(user.getStatus());
+        UserRole.require(user.getRole());
+        if (status != UserStatus.ACTIVE) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "Account is disabled");
         }
         if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
@@ -91,7 +94,8 @@ public class AuthService {
                 authUser.teacherId(),
                 authUser.username(),
                 authUser.email(),
-                authUser.role()));
+                authUser.role(),
+                user.getAuthVersion()));
         return new AuthResponse(token, authUser);
     }
 
