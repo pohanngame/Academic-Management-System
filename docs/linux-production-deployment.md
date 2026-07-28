@@ -188,9 +188,16 @@ docker volume ls
 
 恢复时必须恢复原加密主密钥。密钥丢失或不匹配时，系统会返回“AI 配置无法解密，请恢复加密密钥备份”，不会静默覆盖或删除数据库密文。不要在真实数据环境中通过删除密钥文件测试这一故障；应复制备份到隔离环境，保留原文件，再用不匹配密钥启动副本验证安全失败。备份应保存在服务器之外的受控位置，并定期在隔离测试环境中演练恢复。没有恢复验证的备份不能视为可用备份。
 
+恢复助手使用 `APP_RESTORE_INBOX_DIR`（Compose 固定为 `/app/data/restore-inbox`）、
+`APP_RESTORE_MAX_UPLOAD_BYTES`（默认 512 MiB）和 `APP_RESTORE_STAGED_TTL`（默认 24 小时）。
+全局 multipart 与 Nginx 上限为恢复包上传而提高；普通业务附件仍由 `APP_MAX_UPLOAD_SIZE=10MB`
+在服务层限制。backend 不挂载 Docker Socket，也不持有宿主机 Docker 权限或 MySQL root 密码。
+
 迁移到新服务器前先运行 `scripts/restore-backup.sh --backup <受控路径> --verify-only`，再按照
 [完整迁移备份与恢复](system-backup-restore.md) 使用独立 Compose project name 恢复。在线页面
-没有覆盖恢复按钮；覆盖现有目标必须显式 `--force`、输入确认短语，且脚本会先创建安全副本。失败
+也可以暂存包并生成 `bash scripts/restore-staged-backup.sh --id <UUID>`，但不会直接恢复。先给该
+命令增加 `--verify-only`；正式执行前确认位于目标项目根目录。覆盖现有目标必须显式 `--force`、
+输入确认短语，且脚本会先创建安全副本。失败
 时保留/恢复原数据并返回非零退出码。
 
 严禁把备份文件、`.env` 或 Docker volume 提交 Git。正常维护时不要执行以下命令：

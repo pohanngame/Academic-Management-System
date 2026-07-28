@@ -32,3 +32,24 @@ export async function exportSystemBackup(currentPassword) {
     { responseType: 'blob', timeout: 0 }
   )
 }
+
+export async function getStagedRestores() {
+  const { data } = await http.get('/admin/restores/staged')
+  return data.data
+}
+
+export async function stageRestorePackage(file, currentPassword) {
+  const form = new FormData()
+  form.append('file', file)
+  form.append('currentPassword', currentPassword)
+  const { data } = await http.post('/admin/restores/staged', form, {
+    timeout: 0
+  })
+  return data.data
+}
+
+export async function deleteStagedRestore(id, currentPassword) {
+  await http.delete(`/admin/restores/staged/${id}`, {
+    data: { currentPassword }
+  })
+}

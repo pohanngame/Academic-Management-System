@@ -169,6 +169,24 @@ class FileStorageServiceTest {
         assertThrows(BusinessException.class, () -> service.readActiveAiWordTemplate(1L, 31L));
     }
 
+    @Test
+    void ordinaryAttachmentStillRejectsFilesOverTenMiB() {
+        Paper paper = new Paper();
+        paper.setId(10L);
+        paper.setTeacherId(1L);
+        when(paperMapper.selectById(10L)).thenReturn(paper);
+        MockMultipartFile oversized = new MockMultipartFile(
+                "file",
+                "large.pdf",
+                "application/pdf",
+                new byte[10 * 1024 * 1024 + 1]);
+
+        assertThrows(
+                BusinessException.class,
+                () -> service.uploadFile(1L, FileBusinessType.PAPER, 10L, oversized));
+        verify(fileMetadataMapper, never()).insert(any(FileMetadata.class));
+    }
+
     private long regularFileCount() throws IOException {
         try (var files = Files.walk(tempDir)) {
             return files.filter(Files::isRegularFile).count();

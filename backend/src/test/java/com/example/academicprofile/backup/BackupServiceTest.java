@@ -92,6 +92,7 @@ class BackupServiceTest {
             assertThat(zip.getEntry("uploads/attachment.txt")).isNotNull();
             assertThat(zip.getEntry("secrets/ai-config.key")).isNotNull();
             assertThat(zip.getEntry(".env")).isNull();
+            assertThat(zip.getEntry("restore-inbox")).isNull();
             JsonNode manifest = new ObjectMapper().readTree(zip.getInputStream(zip.getEntry("manifest.json")));
             assertThat(manifest.path("backupFormatVersion").asInt()).isEqualTo(1);
             assertThat(manifest.path("files").path("database.sql").path("sha256").asText()).hasSize(64);

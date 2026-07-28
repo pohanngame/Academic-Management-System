@@ -23,7 +23,7 @@
 | Volume | 内容 | 备份要求 |
 | --- | --- | --- |
 | `mysql-data` | 业务数据库 | 完整备份包含逻辑 SQL |
-| `backend-data` | uploads、导出临时数据、AI 加密主密钥 | 必须与数据库属于同一恢复点 |
+| `backend-data` | uploads、导出临时数据、AI 加密主密钥、恢复助手暂存包 | 必须与数据库属于同一恢复点；暂存包按 TTL 清理 |
 | `paddleocr_models` | 可重新下载的 OCR 模型缓存 | 不进入迁移备份 |
 
 只备份 MySQL 无法恢复附件，也无法解密数据库中的教师 AI 配置。

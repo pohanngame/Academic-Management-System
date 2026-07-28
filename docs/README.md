@@ -5,7 +5,7 @@
 1. [项目 README](../README.md)：项目概述、功能摘要和快速启动。
 2. [Linux 生产部署](linux-production-deployment.md)：服务器配置、HTTPS、启动、升级和日常运维。
 3. [超级管理员指南](super-admin-guide.md)：bootstrap、权限矩阵、保护规则和人工验收。
-4. [完整备份与恢复](system-backup-restore.md)：备份安全边界、校验、离线恢复和隔离演练。
+4. [完整备份与恢复](system-backup-restore.md)：备份安全边界、恢复助手、校验、离线恢复和隔离演练。
 5. [Docker 操作手册](../docker/README.md)：Compose 服务、端口、volume、构建和容器运维。
 6. [脚本说明](../scripts/README.md)：生产恢复脚本与测试专用资产。
 
@@ -16,7 +16,7 @@
 | `README.md` | 初次使用者 | 快速启动、功能和角色概览 |
 | `linux-production-deployment.md` | 部署运维 | Linux、HTTPS、环境变量、升级 |
 | `super-admin-guide.md` | SUPER_ADMIN/运维 | 首位管理员、用户管理、权限验收 |
-| `system-backup-restore.md` | SUPER_ADMIN/恢复运维 | 导出、下载、verify-only、离线恢复和回滚 |
+| `system-backup-restore.md` | SUPER_ADMIN/恢复运维 | 导出、恢复助手、verify-only、离线恢复和回滚 |
 | `docker/README.md` | 开发与运维 | 五服务、volume、构建、重启、日志 |
 | `scripts/README.md` | 恢复演练人员 | 脚本参数、测试目录、隔离矩阵 |
 

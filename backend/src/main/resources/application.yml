@@ -11,8 +11,9 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
   servlet:
     multipart:
-      max-file-size: ${SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE:20MB}
-      max-request-size: ${SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE:20MB}
+      max-file-size: ${SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE:512MB}
+      max-request-size: ${SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE:513MB}
+      location: ${APP_TEMP_DIR:./data/temp}
   mvc:
     async:
       request-timeout: ${APP_BACKUP_DOWNLOAD_TIMEOUT:15m}
@@ -44,6 +45,10 @@ app:
     application-version: ${APP_VERSION:unknown}
     git-commit: ${APP_GIT_COMMIT:unknown}
     mysqldump-executable: ${APP_MYSQLDUMP_EXECUTABLE:mysqldump}
+  restore:
+    inbox-dir: ${APP_RESTORE_INBOX_DIR:./data/restore-inbox}
+    max-upload-bytes: ${APP_RESTORE_MAX_UPLOAD_BYTES:536870912}
+    staged-ttl: ${APP_RESTORE_STAGED_TTL:24h}
   ai:
     max-tokens: ${AI_MAX_TOKENS:1024}
     max-prompt-chars: ${AI_MAX_PROMPT_CHARS:30000}

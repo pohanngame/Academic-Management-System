@@ -5,10 +5,13 @@ import { onMounted, reactive, ref } from 'vue'
 import {
   changeAdminUserRole,
   changeAdminUserStatus,
+  deleteStagedRestore,
   exportSystemBackup,
   getAdminAuditLogs,
   getAdminOverview,
-  getAdminUsers
+  getStagedRestores,
+  getAdminUsers,
+  stageRestorePackage
 } from '../../services/admin'
 
 const loading = ref(false)
@@ -18,6 +21,12 @@ const audits = ref({ items: [], page: 1, size: 20, total: 0 })
 const filters = reactive({ search: '', role: '', status: '', page: 1, size: 20 })
 const backupPassword = ref('')
 const backupRunning = ref(false)
+const restoreFile = ref(null)
+const restoreFileInput = ref(null)
+const restorePassword = ref('')
+const restoreUploading = ref(false)
+const stagedRestores = ref([])
+const defaultRestoreLimit = 512 * 1024 * 1024
 
 async function loadOverview() {
   overview.value = await getAdminOverview()
@@ -34,6 +43,10 @@ async function loadUsers() {
 
 async function loadAudits(page = 1) {
   audits.value = await getAdminAuditLogs({ page, size: 20 })
+}
+
+async function loadStagedRestores() {
+  stagedRestores.value = await getStagedRestores()
 }
 
 async function updateRole(user, role) {
@@ -114,9 +127,96 @@ async function createBackup() {
   }
 }
 
+function chooseRestoreFile(event) {
+  const [file] = event.target.files || []
+  restoreFile.value = file || null
+}
+
+function restoreCommand(id) {
+  return `bash scripts/restore-staged-backup.sh --id ${id}`
+}
+
+function formatBytes(size) {
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KiB`
+  return `${(size / 1024 / 1024).toFixed(2)} MiB`
+}
+
+async function uploadRestorePackage() {
+  const file = restoreFile.value
+  if (!file) {
+    ElMessage.warning('请选择 .apbackup 文件')
+    return
+  }
+  if (!file.name.toLowerCase().endsWith('.apbackup')) {
+    ElMessage.warning('文件扩展名必须为 .apbackup')
+    return
+  }
+  if (file.size === 0 || file.size > defaultRestoreLimit) {
+    ElMessage.warning('恢复包必须非空且不超过 512 MiB；服务端配置可能更严格')
+    return
+  }
+  if (!restorePassword.value) {
+    ElMessage.warning('请输入当前超级管理员密码')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      '上传只会暂存恢复包，不会执行恢复。请确认文件来自可信系统和受控传输渠道。',
+      '确认上传高敏感恢复包',
+      { type: 'warning', confirmButtonText: '上传恢复包' }
+    )
+    restoreUploading.value = true
+    await stageRestorePackage(file, restorePassword.value)
+    restorePassword.value = ''
+    restoreFile.value = null
+    if (restoreFileInput.value) restoreFileInput.value.value = ''
+    await Promise.all([loadStagedRestores(), loadAudits()])
+    ElMessage.success('恢复包已暂存，请由服务器运维人员执行显示的命令')
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(error.response?.data?.message || '恢复包上传失败')
+    }
+  } finally {
+    restorePassword.value = ''
+    restoreUploading.value = false
+  }
+}
+
+async function copyRestoreCommand(id) {
+  try {
+    await navigator.clipboard.writeText(restoreCommand(id))
+    ElMessage.success('恢复命令已复制')
+  } catch {
+    ElMessage.error('复制失败，请手动选择命令文本')
+  }
+}
+
+async function removeStagedRestore(item) {
+  try {
+    const { value: currentPassword } = await ElMessageBox.prompt(
+      `删除暂存任务 ${item.id}？此操作不会恢复任何数据。`,
+      '删除暂存包',
+      {
+        type: 'warning',
+        inputType: 'password',
+        inputPlaceholder: '重新输入当前超级管理员密码',
+        inputValidator: value => Boolean(value) || '请输入当前密码',
+        confirmButtonText: '删除暂存包'
+      }
+    )
+    await deleteStagedRestore(item.id, currentPassword)
+    await Promise.all([loadStagedRestores(), loadAudits()])
+    ElMessage.success('暂存包已删除')
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(error.response?.data?.message || '暂存包删除失败')
+    }
+  }
+}
+
 onMounted(async () => {
   try {
-    await Promise.all([loadOverview(), loadUsers(), loadAudits()])
+    await Promise.all([loadOverview(), loadUsers(), loadAudits(), loadStagedRestores()])
   } catch (error) {
     ElMessage.error(error.response?.data?.message || '管理员数据加载失败')
   }
@@ -202,7 +302,7 @@ onMounted(async () => {
       </el-tab-pane>
 
       <el-tab-pane label="数据备份">
-        <el-card>
+        <el-card class="backup-card">
           <p>迁移包未额外加密。下载必须通过 HTTPS，并在完成后从普通下载目录移走。</p>
           <el-alert
             title="后端会流式输出备份，不会一次性载入 JVM；当前浏览器端使用 Blob，接近大小上限的备份可能占用较多浏览器内存。"
@@ -220,6 +320,69 @@ onMounted(async () => {
             style="max-width: 420px"
           />
           <el-button type="danger" :loading="backupRunning" @click="createBackup">创建并下载完整备份</el-button>
+        </el-card>
+
+        <el-card class="backup-card">
+          <template #header><strong>备份恢复助手</strong></template>
+          <el-alert
+            title="上传不会立即恢复。完整恢复仍须由拥有服务器和 Docker 权限的运维人员在项目根目录执行本地脚本。"
+            type="warning"
+            :closable="false"
+            show-icon
+          />
+          <ul class="restore-warnings">
+            <li>SHA-256 只能发现损坏，不能证明来源；只允许使用可信来源的备份。</li>
+            <li>恢复会替换用户、数据库、附件和 AI 主密钥，恢复期间页面可能短暂不可用。</li>
+            <li>非空目标仍须向脚本传入 <code>--force</code>，并完成原脚本的人工确认。</li>
+          </ul>
+          <div class="restore-upload">
+            <input
+              ref="restoreFileInput"
+              type="file"
+              accept=".apbackup"
+              :disabled="restoreUploading"
+              @change="chooseRestoreFile"
+            />
+            <el-input
+              v-model="restorePassword"
+              type="password"
+              show-password
+              autocomplete="current-password"
+              placeholder="重新输入当前超级管理员密码"
+              :disabled="restoreUploading"
+            />
+            <el-button
+              type="danger"
+              :loading="restoreUploading"
+              :disabled="restoreUploading"
+              @click="uploadRestorePackage"
+            >
+              上传恢复包
+            </el-button>
+          </div>
+
+          <el-empty v-if="stagedRestores.length === 0" description="暂无已暂存的恢复包" />
+          <el-table v-else :data="stagedRestores" class="restore-table">
+            <el-table-column prop="id" label="任务 ID" min-width="290" />
+            <el-table-column label="大小" width="120">
+              <template #default="{ row }">{{ formatBytes(row.size) }}</template>
+            </el-table-column>
+            <el-table-column prop="sha256" label="SHA-256" min-width="300" show-overflow-tooltip />
+            <el-table-column prop="createdAt" label="上传时间" min-width="190" />
+            <el-table-column prop="expiresAt" label="自动过期时间" min-width="190" />
+            <el-table-column label="状态" width="180">
+              <template #default>已暂存，等待服务器执行</template>
+            </el-table-column>
+            <el-table-column label="操作" fixed="right" width="220">
+              <template #default="{ row }">
+                <el-button type="primary" link @click="copyRestoreCommand(row.id)">复制恢复命令</el-button>
+                <el-button type="danger" link @click="removeStagedRestore(row)">删除暂存包</el-button>
+              </template>
+            </el-table-column>
+            <el-table-column label="服务器命令" min-width="520">
+              <template #default="{ row }"><code>{{ restoreCommand(row.id) }}</code></template>
+            </el-table-column>
+          </el-table>
         </el-card>
       </el-tab-pane>
 
@@ -254,5 +417,13 @@ onMounted(async () => {
 .metric strong { font-size: 26px; }
 .summary-card, .el-pagination { margin-top: 16px; }
 .backup-memory-warning { margin: 12px 0; }
+.backup-card + .backup-card { margin-top: 18px; }
+.restore-warnings { line-height: 1.8; }
+.restore-upload { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(280px, 420px) auto; gap: 12px; align-items: center; margin-top: 16px; }
+.restore-table { margin-top: 16px; }
 .el-button { margin-left: 12px; }
+@media (max-width: 900px) {
+  .restore-upload { grid-template-columns: 1fr; }
+  .restore-upload .el-button { margin-left: 0; }
+}
 </style>

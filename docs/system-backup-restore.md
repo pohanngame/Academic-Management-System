@@ -3,8 +3,8 @@
 ## 权限与安全边界
 
 只有当前数据库中仍为 `ACTIVE SUPER_ADMIN` 的账户能查看备份记录、创建和下载备份。创建前后端
-会使用 BCrypt 重新验证当前密码。未登录返回 401，教师返回 403。完整覆盖恢复没有网页按钮和
-HTTP API，只能由拥有目标服务器 Docker 权限的运维人员离线执行，因为恢复会替换账户、JWT 状态、
+会使用 BCrypt 重新验证当前密码。未登录返回 401，教师返回 403。管理页的恢复助手只暂存文件和
+生成命令，不提供在线覆盖恢复 API。完整覆盖恢复只能由拥有目标服务器 Docker 权限的运维人员离线执行，因为恢复会替换账户、JWT 状态、
 数据库和文件目录。
 
 `.apbackup` **没有额外加密**。它包含全体用户数据和私人附件，因此只能经 HTTPS 下载，随后立即
@@ -54,6 +54,42 @@ python3 scripts/verify-backup.py /受控路径/backup.apbackup --max-schema 11
 scripts/restore-backup.sh --backup /受控路径/backup.apbackup --verify-only
 ```
 
+## 管理页恢复助手
+
+“系统管理 → 数据备份 → 备份恢复助手”是半自动运维入口，不是网页一键恢复：
+
+1. SUPER_ADMIN 选择可信来源的 `.apbackup`，重新输入当前密码并点击“上传恢复包”。
+2. 后端流式写入 `backend-data:/app/data/restore-inbox`，过程中计算实际大小和 SHA-256。服务端只使用
+   随机 UUID 文件名，先写 `.partial`，完成后原子发布包和 JSON sidecar。
+3. 页面显示任务 ID、大小、SHA-256、上传/过期时间和“已暂存，等待服务器执行”。
+4. 运维人员登录 Linux 服务器，在项目根目录复制执行：
+
+   ```bash
+   bash scripts/restore-staged-backup.sh --id <UUID> --verify-only
+   ```
+
+5. 校验通过后，空目标执行：
+
+   ```bash
+   bash scripts/restore-staged-backup.sh --id <UUID>
+   ```
+
+   非空目标必须显式增加 `--force`，并继续完成 `restore-backup.sh` 要求的人工确认短语：
+
+   ```bash
+   bash scripts/restore-staged-backup.sh --id <UUID> --force
+   ```
+
+上传成功只表示文件已暂存，不表示校验或恢复成功。SHA-256 只能发现损坏，不认证来源。后端容器没有
+Docker Socket、MySQL root 密码或宿主机 Shell 权限；HTTP 请求也不会停止容器、导入 SQL 或切换目录。
+包装脚本在宿主机解析实际 Compose project name，从既有 backend-data 卷流式复制包到权限受限的
+`mktemp`，先调用 `verify-backup.py`，再调用现有 `restore-backup.sh`，不复制恢复逻辑。
+
+暂存包默认最大 512 MiB（`APP_RESTORE_MAX_UPLOAD_BYTES`），默认 24 小时后过期
+（`APP_RESTORE_STAGED_TTL`）。应用启动和定时任务会清理过期包、sidecar 及非活动 `.partial`。
+恢复成功后包装脚本删除对应包和 sidecar；失败时保留供排查和重试。管理员也可在过期前重新验证密码
+后删除。恢复期间页面可能短暂不可用。
+
 校验器拒绝错误扩展名、非法 ZIP、重复路径、绝对路径、`..` 路径穿越、反斜杠路径、符号链接、
 缺少 manifest/database/key、未知格式版本、过新的 schema、文件清单差异和 SHA-256/大小差异。
 `--verify-only` 不启动容器、不创建 volume、不写数据库。
@@ -64,7 +100,8 @@ scripts/restore-backup.sh --backup /受控路径/backup.apbackup --verify-only
 2. 创建目标服务器自己的 `.env`；不要复制来源 `.env` 或 JWT Secret。
 3. 构建 full profile，确认项目目录是绝对、受控目录。
 4. 先执行 `--verify-only`。
-5. 使用一个明确且只属于目标的 Compose project name 恢复：
+5. 可先用恢复助手上传并执行上一节的固定命令；也可直接使用受控路径中的包。直接恢复时使用一个
+   明确且只属于目标的 Compose project name：
 
 ```bash
 cd /srv/academic-profile

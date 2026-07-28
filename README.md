@@ -13,6 +13,7 @@ Spring Boot、Vue 3、MySQL 8.4 和 Docker Compose，教师数据及第三方 AI
 - `TEACHER` / `SUPER_ADMIN` 固定角色
 - 管理员概览、用户角色/状态管理和审计日志
 - 完整迁移备份：数据库、uploads 和 AI 加密主密钥
+- SUPER_ADMIN 恢复助手：安全暂存恢复包并生成服务器执行命令
 - Linux 离线校验、恢复和故障回滚工具
 
 ## 快速启动
@@ -89,7 +90,8 @@ API Key 使用 AES-256-GCM 加密后存入数据库，真实 Key 不会回显。
 后端流式发送文件，不把完整包一次性读入 JVM；当前浏览器使用 Blob，接近默认 512 MiB 上限时可能
 占用较多浏览器内存。超过 `APP_BACKUP_MAXIMUM_DOWNLOAD_BYTES` 的包会在响应前删除。
 
-恢复不提供网页 API，只能由拥有目标服务器和 Docker 权限的运维人员离线执行。详见
+管理页可将可信 `.apbackup` 安全暂存并生成固定的服务器命令，但不会从网页执行恢复。完整恢复仍只能
+由拥有目标服务器和 Docker 权限的运维人员调用离线脚本。详见
 [完整备份与恢复手册](docs/system-backup-restore.md)。
 
 ## 项目目录
@@ -116,6 +118,8 @@ npm run build
 cd ..
 python3 -m unittest scripts/tests/test_verify_backup.py
 bash -n scripts/restore-backup.sh
+bash -n scripts/restore-staged-backup.sh
+bash scripts/tests/test-restore-staged-backup.sh
 bash -n scripts/tests/test-restore-docker.sh
 docker compose --profile full config --quiet
 ```

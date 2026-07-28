@@ -28,11 +28,13 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import com.example.academicprofile.SecurityConfig;
 import com.example.academicprofile.backup.BackupController;
 import com.example.academicprofile.backup.BackupService;
+import com.example.academicprofile.backup.RestoreStagingController;
+import com.example.academicprofile.backup.RestoreStagingService;
 import com.example.academicprofile.backup.SystemMaintenanceLock;
 import com.example.academicprofile.security.JwtAuthenticationFilter;
 
 @WebMvcTest(
-        controllers = {AdminController.class, BackupController.class},
+        controllers = {AdminController.class, BackupController.class, RestoreStagingController.class},
         excludeAutoConfiguration = UserDetailsServiceAutoConfiguration.class)
 @Import(SecurityConfig.class)
 class AdminAuthorizationTest {
@@ -51,6 +53,8 @@ class AdminAuthorizationTest {
     @MockBean
     private BackupService backups;
     @MockBean
+    private RestoreStagingService restoreStaging;
+    @MockBean
     private SystemMaintenanceLock maintenanceLock;
 
     @BeforeEach
@@ -65,6 +69,7 @@ class AdminAuthorizationTest {
     @Test
     void unauthenticatedAdminRequestReturns401() throws Exception {
         mvc.perform(get("/api/admin/overview")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/admin/restores/staged")).andExpect(status().isUnauthorized());
     }
 
     @ParameterizedTest
@@ -92,6 +97,13 @@ class AdminAuthorizationTest {
                 Arguments.of(patch("/api/admin/users/2/status")
                         .contentType(MediaType.APPLICATION_JSON).content("{\"status\":\"DISABLED\"}")),
                 Arguments.of(post("/api/admin/backups/export")
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"currentPassword\":\"not-real\"}")));
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"currentPassword\":\"not-real\"}")),
+                Arguments.of(get("/api/admin/restores/staged")),
+                Arguments.of(post("/api/admin/restores/staged")
+                        .contentType(MediaType.MULTIPART_FORM_DATA)),
+                Arguments.of(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .delete("/api/admin/restores/staged/11111111-1111-1111-1111-111111111111")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"currentPassword\":\"not-real\"}")));
     }
 }
