@@ -48,7 +48,7 @@ public class PaddleOcrClient {
                 .build();
 
         try {
-            RequestBody fileBody = RequestBody.create(Files.readAllBytes(filePath), MediaType.parse(mimeType));
+            RequestBody fileBody = RequestBody.create(filePath.toFile(), MediaType.parse(mimeType));
             RequestBody body = new MultipartBody.Builder()
                     .setType(MultipartBody.FORM)
                     .addFormDataPart("file", filePath.getFileName().toString(), fileBody)

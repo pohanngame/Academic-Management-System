@@ -1,0 +1,28 @@
+{
+  "year": 2026,
+  "name": "Synthetic CCF",
+  "organization": "Synthetic Organization",
+  "category": [
+    { "id": 1, "chinese": "合成领域", "english": "Synthetic Category" }
+  ],
+  "journals": [
+    {
+      "category_id": 1,
+      "rank": "A",
+      "abbr": "SJ",
+      "name": "Synthetic Journal",
+      "publisher": "Synthetic Publisher",
+      "url": "https://invalid.example/journal"
+    }
+  ],
+  "conferences": [
+    {
+      "category_id": 1,
+      "rank": "B",
+      "abbr": "SC",
+      "name": "Synthetic Conference",
+      "publisher": "Synthetic Publisher",
+      "url": "https://invalid.example/conference"
+    }
+  ]
+}

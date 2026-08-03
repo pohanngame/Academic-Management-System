@@ -164,11 +164,26 @@ docker compose --profile full ps
 
 ## 8. 数据与备份
 
+升级到 schema 15 后，Flyway 会新增期刊/会议参考表和论文评级快照字段，但不会导入第三方数据。
+历史论文的发表载体保持 `UNKNOWN`，不会在迁移时被批量认定为期刊。部署完成后由 `SUPER_ADMIN` 在
+系统管理页上传有权使用的 CCF JSON；系统核对固定年份、SHA-256 和格式后事务导入。未导入时论文基本
+功能和 JCR 手工填写仍可使用，自动匹配安全返回未配置状态。详见[期刊与会议智能评级](publication-venue-ranking.md)。
+
+生产 Compose 默认设置 `APP_CCF_MAX_UPLOAD_BYTES=5242880` 和
+`APP_CCF_ENFORCE_EXPECTED_SHA256=true`。上传暂存使用 `/app/tmp/academic-profile` 的 tmpfs，不进入
+`backend-data`。更换固定数据 revision 时先审核来源与许可并更新预期元数据，不要关闭哈希校验规避审查。
+
 系统的持久化数据位于 Docker named volume：
 
 - MySQL 数据：`mysql-data`。
 - OCR 模型：`paddleocr_models`。
-- 上传、导出、临时文件和 AI 配置加密主密钥：`backend-data`。
+- 密文上传、导出结果、恢复助手暂存包、AI 配置主密钥和附件加密主密钥：`backend-data`。
+- OCR 解密明文与 Spring multipart 临时文件：容器 `/app/tmp` 的 tmpfs，不进入 `backend-data` 或备份。
+
+应用专用临时目录为 `/app/tmp/academic-profile`。Compose 对 `/app/tmp` 使用 `nosuid,nodev,noexec`
+的 tmpfs，并将其所有者设为镜像内的 `app` 用户（UID/GID 999）；目录设为 `0700`、临时文件尽量设为
+`0600`，并在成功或失败后立即删除。OCR 期间仍存在短生命周期明文，因此不要把该目录改成持久化
+volume，也不要采集或备份其内容。
 
 Docker 会给实际 volume 名加入 Compose 项目前缀。先查看真实名称：
 
@@ -177,9 +192,14 @@ docker volume ls
 ```
 
 定期由 `SUPER_ADMIN` 在 HTTPS 页面“系统管理 → 数据备份”重新输入当前密码并创建完整迁移包。
-包同时包含 MySQL 逻辑备份、uploads 和同一恢复点的 `/app/data/secrets/ai-config.key`。仅有 MySQL
+包同时包含 MySQL 逻辑备份、密文 uploads、`/app/data/secrets/ai-config.key` 和
+`/app/data/secrets/file-encryption.key`。仅有 MySQL
 备份既不能恢复附件，也不能解密教师 AI 配置。`.apbackup` 不含 `.env` 或 JWT Secret，并且自身
 没有额外加密，下载后必须立即移到受控存储。
+
+后端启动会把数据库中的已加密附件与 `file-encryption.key` 指纹核对。已有加密附件时，密钥文件
+缺失或不匹配都会阻止启动；系统不会生成替代密钥“修复”。应恢复与数据库、密文 uploads 属于同一
+备份点的原密钥，再重启验证。
 
 `APP_BACKUP_MAXIMUM_DOWNLOAD_BYTES` 控制管理页可下载备份的最大字节数，默认
 `536870912`（512 MiB）。后端流式输出且不一次性载入 JVM，但当前浏览器端使用 Blob，接近上限时

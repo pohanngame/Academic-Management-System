@@ -9,10 +9,13 @@ import {
   exportSystemBackup,
   getAdminAuditLogs,
   getAdminOverview,
+  getCcfReferenceStatus,
   getStagedRestores,
   getAdminUsers,
+  importCcfReferenceData,
   stageRestorePackage
 } from '../../services/admin'
+import { canSubmitCcfImport, sanitizeCcfImportError } from './ccfReferenceAdminRules'
 
 const loading = ref(false)
 const overview = ref(null)
@@ -27,6 +30,11 @@ const restorePassword = ref('')
 const restoreUploading = ref(false)
 const stagedRestores = ref([])
 const defaultRestoreLimit = 512 * 1024 * 1024
+const ccfStatus = ref(null)
+const ccfFile = ref(null)
+const ccfFileInput = ref(null)
+const ccfPassword = ref('')
+const ccfImporting = ref(false)
 
 async function loadOverview() {
   overview.value = await getAdminOverview()
@@ -47,6 +55,43 @@ async function loadAudits(page = 1) {
 
 async function loadStagedRestores() {
   stagedRestores.value = await getStagedRestores()
+}
+
+async function loadCcfStatus() {
+  ccfStatus.value = await getCcfReferenceStatus()
+}
+
+function chooseCcfFile(event) {
+  const [file] = event.target.files || []
+  ccfFile.value = file || null
+}
+
+async function uploadCcfReference() {
+  if (!canSubmitCcfImport(ccfFile.value, ccfPassword.value, ccfImporting.value)) {
+    ElMessage.warning('请选择非空且不超过 5 MiB 的 JSON，并输入当前密码')
+    return
+  }
+  try {
+    await ElMessageBox.confirm(
+      '请仅上传您有权使用的数据文件。系统不会自动从外部网站下载数据。确认继续？',
+      '确认导入 CCF 参考数据',
+      { type: 'warning', confirmButtonText: '上传并验证' }
+    )
+    ccfImporting.value = true
+    const result = await importCcfReferenceData(ccfFile.value, ccfPassword.value)
+    await Promise.all([loadCcfStatus(), loadAudits()])
+    ElMessage.success(result.imported ? `已导入 ${result.journalCount + result.conferenceCount} 条参考数据` : '相同版本已存在，无需重复导入')
+    ccfPassword.value = ''
+    ccfFile.value = null
+    if (ccfFileInput.value) ccfFileInput.value.value = ''
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(sanitizeCcfImportError(error.response?.data?.message))
+    }
+  } finally {
+    ccfPassword.value = ''
+    ccfImporting.value = false
+  }
 }
 
 async function updateRole(user, role) {
@@ -216,7 +261,7 @@ async function removeStagedRestore(item) {
 
 onMounted(async () => {
   try {
-    await Promise.all([loadOverview(), loadUsers(), loadAudits(), loadStagedRestores()])
+    await Promise.all([loadOverview(), loadUsers(), loadAudits(), loadStagedRestores(), loadCcfStatus()])
   } catch (error) {
     ElMessage.error(error.response?.data?.message || '管理员数据加载失败')
   }
@@ -386,6 +431,44 @@ onMounted(async () => {
         </el-card>
       </el-tab-pane>
 
+      <el-tab-pane label="期刊/会议参考数据">
+        <el-card class="backup-card">
+          <template #header><strong>CCF 参考数据</strong></template>
+          <el-alert
+            title="系统不会自动下载 CCF 数据。请仅上传您有权使用的数据文件；第三方整理数据不是 CCF 官方实时接口。"
+            type="warning"
+            :closable="false"
+            show-icon
+          />
+          <el-descriptions v-if="ccfStatus?.configured" :column="2" border class="ccf-status">
+            <el-descriptions-item label="数据名称">{{ ccfStatus.dataName }}</el-descriptions-item>
+            <el-descriptions-item label="数据年度">{{ ccfStatus.dataYear }}</el-descriptions-item>
+            <el-descriptions-item label="领域/期刊/会议">
+              {{ ccfStatus.categoryCount }} / {{ ccfStatus.journalCount }} / {{ ccfStatus.conferenceCount }}
+            </el-descriptions-item>
+            <el-descriptions-item label="导入管理员">用户 #{{ ccfStatus.importedByUserId || '未知' }}</el-descriptions-item>
+            <el-descriptions-item label="导入时间">{{ ccfStatus.importedAt }}</el-descriptions-item>
+            <el-descriptions-item label="SHA-256"><code>{{ ccfStatus.sha256 }}</code></el-descriptions-item>
+            <el-descriptions-item label="来源" :span="2">{{ ccfStatus.source }}</el-descriptions-item>
+          </el-descriptions>
+          <el-empty v-else description="管理员尚未配置 CCF 参考数据" />
+          <div class="restore-upload">
+            <input ref="ccfFileInput" type="file" accept=".json,application/json" :disabled="ccfImporting" @change="chooseCcfFile" />
+            <el-input
+              v-model="ccfPassword"
+              type="password"
+              autocomplete="current-password"
+              placeholder="重新输入当前超级管理员密码"
+              :disabled="ccfImporting"
+            />
+            <el-button type="primary" :loading="ccfImporting" :disabled="ccfImporting" @click="uploadCcfReference">
+              上传并验证
+            </el-button>
+          </div>
+          <p>导入新版本只替换自动匹配参考库；教师已经确认的论文历史快照不会改变。</p>
+        </el-card>
+      </el-tab-pane>
+
       <el-tab-pane label="管理审计日志">
         <el-table :data="audits.items">
           <el-table-column prop="createdAt" label="时间" min-width="170" />
@@ -421,6 +504,7 @@ onMounted(async () => {
 .restore-warnings { line-height: 1.8; }
 .restore-upload { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(280px, 420px) auto; gap: 12px; align-items: center; margin-top: 16px; }
 .restore-table { margin-top: 16px; }
+.ccf-status { margin-top: 16px; }
 .el-button { margin-left: 12px; }
 @media (max-width: 900px) {
   .restore-upload { grid-template-columns: 1fr; }

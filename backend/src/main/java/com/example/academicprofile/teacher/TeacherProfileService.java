@@ -1,6 +1,7 @@
 package com.example.academicprofile.teacher;
 
 import java.util.Optional;
+import java.util.List;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -34,6 +35,12 @@ public class TeacherProfileService {
             throw new BusinessException(HttpStatus.NOT_FOUND, "Teacher profile not found");
         }
         return profile;
+    }
+
+    public List<TeacherProfile> listAll() {
+        return teacherProfileMapper.selectList(new LambdaQueryWrapper<TeacherProfile>()
+                .orderByAsc(TeacherProfile::getDisplayName)
+                .orderByAsc(TeacherProfile::getId));
     }
 
     @Transactional

@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 
 import { useAuthStore } from '../../stores/auth'
+import { safePostLoginTarget } from '../../router/roleNavigation'
 
 const route = useRoute()
 const router = useRouter()
@@ -17,9 +18,9 @@ const form = ref({
 async function handleSubmit() {
   loading.value = true
   try {
-    await authStore.login(form.value)
+    const session = await authStore.login(form.value)
     ElMessage.success('登录成功')
-    router.push(route.query.redirect || '/dashboard')
+    router.push(safePostLoginTarget(route.query.redirect, session.user.role))
   } catch (error) {
     ElMessage.error(error.response?.data?.message || '登录失败')
   } finally {

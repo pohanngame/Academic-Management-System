@@ -18,11 +18,14 @@ import org.springframework.util.StringUtils;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.academicprofile.achievement.Certificate;
 import com.example.academicprofile.achievement.CertificateMapper;
+import com.example.academicprofile.achievement.CompetitionCategory;
 import com.example.academicprofile.achievement.Paper;
 import com.example.academicprofile.achievement.PaperMapper;
 import com.example.academicprofile.achievement.Patent;
 import com.example.academicprofile.achievement.PatentMapper;
 import com.example.academicprofile.common.exception.BusinessException;
+import com.example.academicprofile.access.ResourcePolicyService;
+import com.example.academicprofile.access.ResourceType;
 import com.example.academicprofile.file.FileBusinessType;
 import com.example.academicprofile.file.FileMetadata;
 import com.example.academicprofile.file.FileStorageService;
@@ -52,6 +55,7 @@ public class OcrService {
     private final PatentMapper patentMapper;
     private final CertificateMapper certificateMapper;
     private final ObjectMapper objectMapper;
+    private final ResourcePolicyService resourcePolicies;
 
     public OcrService(
             OcrTaskMapper taskMapper,
@@ -63,7 +67,8 @@ public class OcrService {
             PaperMapper paperMapper,
             PatentMapper patentMapper,
             CertificateMapper certificateMapper,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            ResourcePolicyService resourcePolicies) {
         this.taskMapper = taskMapper;
         this.resultMapper = resultMapper;
         this.fileStorageService = fileStorageService;
@@ -74,6 +79,7 @@ public class OcrService {
         this.patentMapper = patentMapper;
         this.certificateMapper = certificateMapper;
         this.objectMapper = objectMapper;
+        this.resourcePolicies = resourcePolicies;
     }
 
     @Transactional
@@ -169,8 +175,8 @@ public class OcrService {
         task.setStatus(STATUS_RUNNING);
         taskMapper.updateById(task);
         try {
-            Path filePath = fileStorageService.resolveOwnedFilePath(task.getTeacherId(), metadata.getId());
-            RecognizedText recognizedText = recognize(metadata, filePath);
+            RecognizedText recognizedText = fileStorageService.withReadableTempFile(
+                    task.getTeacherId(), metadata.getId(), filePath -> recognize(metadata, filePath));
             task.setRecognitionMode(recognizedText.mode());
             task.setRawText(limit(recognizedText.text(), 200000));
             OcrResult result = candidateExtractor.extract(task.getId(), task.getTeacherId(), targetType, recognizedText.text());
@@ -183,7 +189,7 @@ public class OcrService {
         } catch (BusinessException ex) {
             markTaskFailed(task, ex.getMessage());
         } catch (RuntimeException ex) {
-            markTaskFailed(task, "OCR failed: " + ex.getMessage());
+            markTaskFailed(task, "OCR failed");
         }
     }
 
@@ -205,7 +211,7 @@ public class OcrService {
         try (PDDocument document = Loader.loadPDF(filePath.toFile())) {
             return new PDFTextStripper().getText(document);
         } catch (IOException ex) {
-            throw new BusinessException("Failed to extract PDF text: " + ex.getMessage());
+            throw new BusinessException("Failed to extract PDF text");
         }
     }
 
@@ -241,6 +247,7 @@ public class OcrService {
         item.setAuthors(blankToNull(result.getAuthors()));
         item.setPublicationName(blankToNull(result.getPublicationName()));
         item.setPublicationType(blankToNull(result.getPublicationType()));
+        item.setVenueType(inferVenueType(result.getPublicationType()));
         item.setPublishYear(result.getPublishYear());
         item.setDoi(blankToNull(result.getDoi()));
         item.setVolume(blankToNull(result.getVolume()));
@@ -253,7 +260,17 @@ public class OcrService {
         item.setSortOrder(0);
         item.setIsPublic(Boolean.FALSE);
         paperMapper.insert(item);
+        resourcePolicies.createDefault(teacherId, ResourceType.PAPER, item.getId());
         return item.getId();
+    }
+
+    private String inferVenueType(String publicationType) {
+        if (publicationType == null) return "UNKNOWN";
+        return switch (publicationType.trim().toLowerCase(java.util.Locale.ROOT)) {
+            case "article", "journal" -> "JOURNAL";
+            case "conference", "inproceedings" -> "CONFERENCE";
+            default -> "UNKNOWN";
+        };
     }
 
     private Long createPatent(Long teacherId, OcrResult result) {
@@ -273,6 +290,7 @@ public class OcrService {
         item.setSortOrder(0);
         item.setIsPublic(Boolean.FALSE);
         patentMapper.insert(item);
+        resourcePolicies.createDefault(teacherId, ResourceType.PATENT, item.getId());
         return item.getId();
     }
 
@@ -284,12 +302,14 @@ public class OcrService {
         item.setTeacherId(teacherId);
         item.setCertificateName(result.getCertificateName());
         item.setCertificateType(blankToNull(result.getCertificateType()));
+        item.setCompetitionCategory(CompetitionCategory.SECOND_CLASS.name());
         item.setIssuingAuthority(blankToNull(result.getIssuingAuthority()));
         item.setIssueDate(result.getIssueDate());
         item.setDescription(blankToNull(result.getDescription()));
         item.setSortOrder(0);
         item.setIsPublic(Boolean.FALSE);
         certificateMapper.insert(item);
+        resourcePolicies.createDefault(teacherId, ResourceType.CERTIFICATE, item.getId());
         return item.getId();
     }
 

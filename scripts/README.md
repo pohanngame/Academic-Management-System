@@ -10,7 +10,7 @@
 只校验、不写入任何目标：
 
 ```bash
-python3 scripts/verify-backup.py /secure/path/backup.apbackup --max-schema 11
+python3 scripts/verify-backup.py /secure/path/backup.apbackup --max-schema 15
 bash scripts/restore-backup.sh --backup /secure/path/backup.apbackup --verify-only
 bash scripts/restore-staged-backup.sh --id <UUID> --verify-only
 ```
@@ -56,3 +56,6 @@ bash scripts/tests/test-restore-docker.sh
 隔离和故障回滚。禁止把测试 Compose 文件、`RESTORE_TEST_FAIL_AT` 或
 `RESTORE_TEST_CONFIRMATION` 用于真实项目名、真实数据库或真实 volumes。脚本不会调用
 `down -v`、`volume prune` 或系统级 volume 清理。
+
+校验器支持 v1/v2。v2 必须包含 `secrets/file-encryption.key`；v1 恢复的历史明文附件需运行受控
+迁移，不得直接标记为已加密。

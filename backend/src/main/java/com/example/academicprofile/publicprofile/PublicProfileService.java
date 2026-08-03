@@ -31,6 +31,7 @@ import com.example.academicprofile.profileblock.TeachingArea;
 import com.example.academicprofile.profileblock.TeachingAreaMapper;
 import com.example.academicprofile.profileblock.WorkingExperience;
 import com.example.academicprofile.profileblock.WorkingExperienceMapper;
+import com.example.academicprofile.publication.PaperRatingVisibility;
 import com.example.academicprofile.teacher.TeacherProfile;
 import com.example.academicprofile.teacher.TeacherProfileMapper;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -254,6 +255,14 @@ public class PublicProfileService {
                         item.getAuthors(),
                         item.getPublicationName(),
                         item.getPublicationType(),
+                        item.getVenueType(),
+                        item.getVenueAbbreviation(),
+                        item.getCcfConfirmedAt() == null ? null : item.getCcfRank(),
+                        item.getCcfConfirmedAt() == null ? null : item.getCcfCategoryName(),
+                        item.getCcfConfirmedAt() == null ? null : item.getCcfDataYear(),
+                        verifiedMetric(item) ? item.getJcrQuartile() : null,
+                        verifiedMetric(item) ? item.getJournalImpactFactor() : null,
+                        verifiedMetric(item) ? item.getJcrDataYear() : null,
                         item.getPublishYear(),
                         item.getDoi(),
                         item.getVolume(),
@@ -264,6 +273,10 @@ public class PublicProfileService {
                         item.getAbstractText(),
                         item.getKeywords()))
                 .toList();
+    }
+
+    private boolean verifiedMetric(Paper paper) {
+        return PaperRatingVisibility.hasVerifiedMetric(paper);
     }
 
     private List<PublicProfileResponse.PatentItem> listPatents(Long teacherId) {
@@ -291,6 +304,7 @@ public class PublicProfileService {
                         item.getId(),
                         item.getCertificateName(),
                         item.getCertificateType(),
+                        item.getCompetitionCategory(),
                         item.getIssuingAuthority(),
                         item.getIssueDate(),
                         item.getDescription()))

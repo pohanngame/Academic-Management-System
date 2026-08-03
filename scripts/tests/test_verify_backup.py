@@ -21,16 +21,19 @@ class VerifyBackupTest(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
-    def package(self, *, schema=11, mutate_manifest=None, extra=None):
+    def package(self, *, schema=11, version=1, mutate_manifest=None, extra=None):
         files = {
             "database.sql": b"CREATE TABLE example(id BIGINT);",
             "secrets/ai-config.key": b"unit-test-key-material",
             "uploads/example.txt": b"attachment",
         }
+        if version == 2:
+            files["secrets/file-encryption.key"] = b"f" * 32
         manifest = {
-            "backupFormatVersion": 1,
+            "backupFormatVersion": version,
             "flywaySchemaVersion": str(schema),
             "includesAiEncryptionKey": True,
+            "includesFileEncryptionKey": version == 2,
             "fileCount": len(files),
             "files": {
                 name: {"size": len(data), "sha256": hashlib.sha256(data).hexdigest()}
@@ -64,6 +67,17 @@ class VerifyBackupTest(unittest.TestCase):
         )
         with self.assertRaises(VERIFY.VerificationError):
             VERIFY.verify_backup(package)
+
+    def test_v2_requires_file_encryption_key(self):
+        package = self.package(version=2, schema=15)
+        self.assertEqual(2, VERIFY.verify_backup(package)["backupFormatVersion"])
+        rewritten = self.root / "missing-file-key.apbackup"
+        with zipfile.ZipFile(package) as source, zipfile.ZipFile(rewritten, "w") as target:
+            for info in source.infolist():
+                if info.filename != "secrets/file-encryption.key":
+                    target.writestr(info, source.read(info))
+        with self.assertRaises(VERIFY.VerificationError):
+            VERIFY.verify_backup(rewritten)
 
     def test_missing_manifest_fails(self):
         path = self.root / "missing.apbackup"
@@ -116,6 +130,11 @@ class VerifyBackupTest(unittest.TestCase):
     def test_newer_schema_fails(self):
         with self.assertRaises(VERIFY.VerificationError):
             VERIFY.verify_backup(self.package(schema=12), max_schema=11)
+
+    def test_default_schema_limit_matches_current_application(self):
+        self.assertEqual("15", VERIFY.verify_backup(self.package(schema=15))["flywaySchemaVersion"])
+        with self.assertRaises(VERIFY.VerificationError):
+            VERIFY.verify_backup(self.package(schema=16))
 
     def test_modified_sql_with_recomputed_hash_still_verifies(self):
         package = self.package()

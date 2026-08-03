@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
 import { createBlock, deleteBlock, listBlock, updateBlock } from '../../services/profileBlocks'
+import { getResourcePolicies, updateResourcePolicies } from '../../services/access'
 
 const route = useRoute()
 const loading = ref(false)
@@ -11,6 +12,14 @@ const saving = ref(false)
 const dialogVisible = ref(false)
 const editingId = ref(null)
 const records = ref([])
+const policies = ref({})
+const accessResourceTypes = {
+  academicQualifications: 'ACADEMIC_QUALIFICATION',
+  teachingAreas: 'TEACHING_AREA',
+  researchAreas: 'RESEARCH_AREA',
+  professionalServices: 'PROFESSIONAL_SERVICE',
+  workingExperiences: 'WORKING_EXPERIENCE'
+}
 
 const configs = {
   academicQualifications: {
@@ -89,11 +98,32 @@ function resetForm(record = null) {
 async function loadRecords() {
   loading.value = true
   try {
-    records.value = await listBlock(blockType.value)
+    const [recordList, policyList] = await Promise.all([
+      listBlock(blockType.value),
+      getResourcePolicies(accessResourceTypes[blockType.value])
+    ])
+    records.value = recordList
+    policies.value = Object.fromEntries(policyList.map((item) => [item.resourceId, item]))
   } catch (error) {
     ElMessage.error(error.response?.data?.message || `加载${config.value.title}失败`)
   } finally {
     loading.value = false
+  }
+}
+
+async function savePolicies() {
+  try {
+    await updateResourcePolicies(records.value.map((record) => ({
+      resourceType: accessResourceTypes[blockType.value],
+      resourceId: record.id,
+      viewAllowed: Boolean(policies.value[record.id]?.viewAllowed),
+      downloadAllowed: Boolean(policies.value[record.id]?.downloadAllowed),
+      aiUseAllowed: Boolean(policies.value[record.id]?.aiUseAllowed)
+    })))
+    ElMessage.success('内部访问权限已保存')
+    await loadRecords()
+  } catch (error) {
+    ElMessage.error(error.response?.data?.message || '保存内部访问权限失败')
   }
 }
 
@@ -161,7 +191,7 @@ onMounted(() => {
         <h2>{{ config.title }}</h2>
         <p>{{ config.description }}</p>
       </div>
-      <el-button type="primary" @click="openCreateDialog">新增</el-button>
+      <div><el-button @click="savePolicies">保存内部权限</el-button><el-button type="primary" @click="openCreateDialog">新增</el-button></div>
     </header>
 
     <el-table v-loading="loading" :data="records" border>
@@ -179,6 +209,15 @@ onMounted(() => {
           <el-tag :type="row.isPublic ? 'success' : 'info'">
             {{ row.isPublic ? '公开' : '隐藏' }}
           </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="内部访问" min-width="250">
+        <template #default="{ row }">
+          <div v-if="policies[row.id]" class="policy-switches">
+            <el-switch v-model="policies[row.id].viewAllowed" active-text="查看" />
+            <el-switch v-model="policies[row.id].downloadAllowed" active-text="可申请下载" />
+            <el-switch v-model="policies[row.id].aiUseAllowed" active-text="可申请 AI" />
+          </div>
         </template>
       </el-table-column>
       <el-table-column label="操作" width="150" fixed="right">
@@ -230,6 +269,12 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.policy-switches {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
 .page-panel {
   padding: 28px;
   background: #ffffff;

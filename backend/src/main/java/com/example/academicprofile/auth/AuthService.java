@@ -7,6 +7,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import com.example.academicprofile.common.exception.BusinessException;
+import com.example.academicprofile.organization.OrganizationService;
 import com.example.academicprofile.security.CurrentUser;
 import com.example.academicprofile.security.JwtService;
 import com.example.academicprofile.teacher.TeacherProfile;
@@ -23,16 +24,19 @@ public class AuthService {
     private final TeacherProfileService teacherProfileService;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
+    private final OrganizationService organizationService;
 
     public AuthService(
             UserAccountService userAccountService,
             TeacherProfileService teacherProfileService,
             PasswordEncoder passwordEncoder,
-            JwtService jwtService) {
+            JwtService jwtService,
+            OrganizationService organizationService) {
         this.userAccountService = userAccountService;
         this.teacherProfileService = teacherProfileService;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
+        this.organizationService = organizationService;
     }
 
     @Transactional
@@ -63,6 +67,7 @@ public class AuthService {
         teacherProfile.setTitle(blankToNull(request.title()));
         teacherProfile.setPublicEnabled(false);
         teacherProfileService.create(teacherProfile);
+        organizationService.assignDefaultRole(user.getId());
 
         AuthUserResponse authUser = toAuthUser(user, teacherProfile);
         String token = jwtService.generateToken(new CurrentUser(

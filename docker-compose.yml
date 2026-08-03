@@ -49,14 +49,18 @@ services:
       APP_RESTORE_INBOX_DIR: /app/data/restore-inbox
       APP_RESTORE_MAX_UPLOAD_BYTES: ${APP_RESTORE_MAX_UPLOAD_BYTES:-536870912}
       APP_RESTORE_STAGED_TTL: ${APP_RESTORE_STAGED_TTL:-24h}
+      APP_CCF_MAX_UPLOAD_BYTES: ${APP_CCF_MAX_UPLOAD_BYTES:-5242880}
+      APP_CCF_ENFORCE_EXPECTED_SHA256: ${APP_CCF_ENFORCE_EXPECTED_SHA256:-true}
       SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE: ${SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE:-512MB}
       SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE: ${SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE:-513MB}
       APP_VERSION: ${APP_VERSION:-unknown}
       APP_GIT_COMMIT: ${APP_GIT_COMMIT:-unknown}
       APP_UPLOAD_DIR: /app/data/uploads
       APP_EXPORT_DIR: /app/data/exports
-      APP_TEMP_DIR: /app/data/temp
+      APP_TEMP_DIR: /app/tmp/academic-profile
       APP_MAX_UPLOAD_SIZE: ${APP_MAX_UPLOAD_SIZE:-10MB}
+      FILE_ENCRYPTION_KEY_FILE: /app/data/secrets/file-encryption.key
+      FILE_ENCRYPTION_MIGRATION_ENABLED: ${FILE_ENCRYPTION_MIGRATION_ENABLED:-false}
       AI_ENCRYPTION_KEY_FILE: /app/data/secrets/ai-config.key
       AI_CONNECT_TIMEOUT_SECONDS: ${AI_CONNECT_TIMEOUT_SECONDS:-10}
       AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-60}
@@ -74,6 +78,8 @@ services:
       - "8080"
     volumes:
       - backend-data:/app/data
+    tmpfs:
+      - /app/tmp:rw,nosuid,nodev,noexec,size=1073741824,mode=0700,uid=999,gid=999
     depends_on:
       mysql:
         condition: service_healthy

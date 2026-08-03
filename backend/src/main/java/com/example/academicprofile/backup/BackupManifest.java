@@ -14,6 +14,7 @@ public record BackupManifest(
         String databaseVersion,
         long fileCount,
         boolean includesAiEncryptionKey,
+        boolean includesFileEncryptionKey,
         Map<String, FileEntry> files) {
 
     public record FileEntry(long size, String sha256) {

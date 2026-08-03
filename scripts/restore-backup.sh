@@ -8,7 +8,7 @@ FORCE=false
 BACKUP=""
 PROJECT_DIR=""
 PROJECT=""
-MAX_SCHEMA=11
+MAX_SCHEMA=15
 TEST_FAIL_AT="${RESTORE_TEST_FAIL_AT:-}"
 TEST_CONFIRMATION="${RESTORE_TEST_CONFIRMATION:-}"
 
@@ -249,6 +249,7 @@ on_error() {
 trap on_error ERR
 
 python3 "$SCRIPT_DIR/verify-backup.py" "$BACKUP" --max-schema "$MAX_SCHEMA" --extract "$EXTRACT"
+BACKUP_FORMAT="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["backupFormatVersion"])' "$EXTRACT/manifest.json")"
 
 "${DC[@]}" config --quiet
 "${DC[@]}" up -d mysql
@@ -384,10 +385,18 @@ docker cp "$EXTRACT/." "$BACKEND_CONTAINER:/app/data/.restore-package-$RESTORE_I
       exit 1
     }
     cp "$package/secrets/ai-config.key" "$stage/secrets/ai-config.key"
-    chmod 600 "$stage/secrets/ai-config.key"
+    if test "$2" = "2"; then
+      test -f "$package/secrets/file-encryption.key" \
+        && test ! -L "$package/secrets/file-encryption.key" || {
+        echo "Restore failed: staged file encryption key is invalid" >&2
+        exit 1
+      }
+      cp "$package/secrets/file-encryption.key" "$stage/secrets/file-encryption.key"
+    fi
+    chmod 600 "$stage/secrets/"*.key
     chown -R app:app "$stage"
     rm -rf -- "$package"
-  ' -- "$RESTORE_ID"
+  ' -- "$RESTORE_ID" "$BACKUP_FORMAT"
 
 RESTORE_PHASE="target_database_import"
 create_restore_account "$DB_NAME" "rst" TARGET_USER TARGET_DEFAULTS
@@ -449,6 +458,9 @@ RESTORE_PHASE="file_switch"
   test -d "$stage/uploads" && test ! -L "$stage/uploads"
   test -d "$stage/secrets" && test ! -L "$stage/secrets"
   test -f "$stage/secrets/ai-config.key" && test ! -L "$stage/secrets/ai-config.key"
+  if test "$3" = "2"; then
+    test -f "$stage/secrets/file-encryption.key" && test ! -L "$stage/secrets/file-encryption.key"
+  fi
   test -d "$rollback" && test ! -L "$rollback"
   test ! -e "$rollback/uploads" && test ! -e "$rollback/secrets"
   test ! -L /app/data/uploads && test ! -L /app/data/secrets
@@ -478,11 +490,11 @@ RESTORE_PHASE="file_switch"
   : > "$rollback/.new-secrets-installed"
   fail_if_requested after_new_secrets_installed
 
-  chmod 600 /app/data/secrets/ai-config.key
+  chmod 600 /app/data/secrets/*.key
   chown -R app:app /app/data/uploads /app/data/secrets
   rmdir "$stage"
   trap - EXIT
-' -- "$RESTORE_ID" "$TEST_FAIL_AT"
+' -- "$RESTORE_ID" "$TEST_FAIL_AT" "$BACKUP_FORMAT"
 
 if [[ "$TEST_FAIL_AT" == "before_health_check" ]]; then
   false
@@ -522,6 +534,8 @@ SCHEMA="$(
 "${DC[@]}" run --rm --no-deps --entrypoint sh backend -c \
   'test -f /app/data/secrets/ai-config.key \
     && test ! -L /app/data/secrets/ai-config.key \
+    && test -f /app/data/secrets/file-encryption.key \
+    && test ! -L /app/data/secrets/file-encryption.key \
     && test -d /app/data/uploads \
     && test ! -L /app/data/uploads'
 

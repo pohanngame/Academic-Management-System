@@ -10,6 +10,8 @@ import org.springframework.util.StringUtils;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.example.academicprofile.common.exception.BusinessException;
+import com.example.academicprofile.access.ResourcePolicyService;
+import com.example.academicprofile.access.ResourceType;
 
 @Service
 public class ProfileBlockService {
@@ -19,18 +21,21 @@ public class ProfileBlockService {
     private final ResearchAreaMapper researchAreaMapper;
     private final ProfessionalServiceMapper professionalServiceMapper;
     private final WorkingExperienceMapper workingExperienceMapper;
+    private final ResourcePolicyService resourcePolicies;
 
     public ProfileBlockService(
             AcademicQualificationMapper academicQualificationMapper,
             TeachingAreaMapper teachingAreaMapper,
             ResearchAreaMapper researchAreaMapper,
             ProfessionalServiceMapper professionalServiceMapper,
-            WorkingExperienceMapper workingExperienceMapper) {
+            WorkingExperienceMapper workingExperienceMapper,
+            ResourcePolicyService resourcePolicies) {
         this.academicQualificationMapper = academicQualificationMapper;
         this.teachingAreaMapper = teachingAreaMapper;
         this.researchAreaMapper = researchAreaMapper;
         this.professionalServiceMapper = professionalServiceMapper;
         this.workingExperienceMapper = workingExperienceMapper;
+        this.resourcePolicies = resourcePolicies;
     }
 
     public List<AcademicQualification> listAcademicQualifications(Long teacherId) {
@@ -74,6 +79,7 @@ public class ProfileBlockService {
         item.setTeacherId(teacherId);
         applyAcademicQualification(item, request);
         academicQualificationMapper.insert(item);
+        resourcePolicies.createDefault(teacherId, ResourceType.ACADEMIC_QUALIFICATION, item.getId());
         return item;
     }
 
@@ -96,6 +102,7 @@ public class ProfileBlockService {
         item.setTeacherId(teacherId);
         applyArea(item, request);
         teachingAreaMapper.insert(item);
+        resourcePolicies.createDefault(teacherId, ResourceType.TEACHING_AREA, item.getId());
         return item;
     }
 
@@ -118,6 +125,7 @@ public class ProfileBlockService {
         item.setTeacherId(teacherId);
         applyArea(item, request);
         researchAreaMapper.insert(item);
+        resourcePolicies.createDefault(teacherId, ResourceType.RESEARCH_AREA, item.getId());
         return item;
     }
 
@@ -140,6 +148,7 @@ public class ProfileBlockService {
         item.setTeacherId(teacherId);
         applyProfessionalService(item, request);
         professionalServiceMapper.insert(item);
+        resourcePolicies.createDefault(teacherId, ResourceType.PROFESSIONAL_SERVICE, item.getId());
         return item;
     }
 
@@ -162,6 +171,7 @@ public class ProfileBlockService {
         item.setTeacherId(teacherId);
         applyWorkingExperience(item, request);
         workingExperienceMapper.insert(item);
+        resourcePolicies.createDefault(teacherId, ResourceType.WORKING_EXPERIENCE, item.getId());
         return item;
     }
 

@@ -15,6 +15,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import com.example.academicprofile.common.exception.BusinessException;
+import com.example.academicprofile.organization.OrganizationService;
 import com.example.academicprofile.security.CurrentUser;
 import com.example.academicprofile.security.JwtService;
 import com.example.academicprofile.teacher.TeacherProfile;
@@ -28,6 +29,7 @@ class AuthServiceTest {
     private TeacherProfileService teachers;
     private PasswordEncoder passwords;
     private JwtService jwt;
+    private OrganizationService organization;
     private AuthService service;
 
     @BeforeEach
@@ -36,7 +38,8 @@ class AuthServiceTest {
         teachers = org.mockito.Mockito.mock(TeacherProfileService.class);
         passwords = org.mockito.Mockito.mock(PasswordEncoder.class);
         jwt = org.mockito.Mockito.mock(JwtService.class);
-        service = new AuthService(users, teachers, passwords, jwt);
+        organization = org.mockito.Mockito.mock(OrganizationService.class);
+        service = new AuthService(users, teachers, passwords, jwt, organization);
     }
 
     @Test
@@ -64,6 +67,7 @@ class AuthServiceTest {
         assertThat(captured.get().getStatus()).isEqualTo("ACTIVE");
         assertThat(captured.get().getAuthVersion()).isZero();
         assertThat(response.user().role()).isEqualTo("TEACHER");
+        verify(organization).assignDefaultRole(11L);
     }
 
     @Test

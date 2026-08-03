@@ -40,6 +40,9 @@ restore-safety/
 .restore-stage-*
 .restore-rollback-*
 .restore-package-*
+.local-acceptance/
+.local-reference-data/
+/加密验收测试.docx
 
 # Docker
 docker/mysql/

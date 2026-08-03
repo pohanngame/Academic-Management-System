@@ -20,6 +20,12 @@ public class FileMetadata {
     private Long fileSize;
     private String businessType;
     private Long businessId;
+    private String encryptionVersion;
+    private String encryptionKeyId;
+    private String wrappedDek;
+    private String ciphertextStatus;
+    private String plaintextSha256;
+    private String legacyStoragePath;
     private Boolean deleted;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
@@ -103,6 +109,19 @@ public class FileMetadata {
     public void setBusinessId(Long businessId) {
         this.businessId = businessId;
     }
+
+    public String getEncryptionVersion() { return encryptionVersion; }
+    public void setEncryptionVersion(String encryptionVersion) { this.encryptionVersion = encryptionVersion; }
+    public String getEncryptionKeyId() { return encryptionKeyId; }
+    public void setEncryptionKeyId(String encryptionKeyId) { this.encryptionKeyId = encryptionKeyId; }
+    public String getWrappedDek() { return wrappedDek; }
+    public void setWrappedDek(String wrappedDek) { this.wrappedDek = wrappedDek; }
+    public String getCiphertextStatus() { return ciphertextStatus; }
+    public void setCiphertextStatus(String ciphertextStatus) { this.ciphertextStatus = ciphertextStatus; }
+    public String getPlaintextSha256() { return plaintextSha256; }
+    public void setPlaintextSha256(String plaintextSha256) { this.plaintextSha256 = plaintextSha256; }
+    public String getLegacyStoragePath() { return legacyStoragePath; }
+    public void setLegacyStoragePath(String legacyStoragePath) { this.legacyStoragePath = legacyStoragePath; }
 
     public Boolean getDeleted() {
         return deleted;

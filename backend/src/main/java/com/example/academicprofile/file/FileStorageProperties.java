@@ -10,8 +10,10 @@ public class FileStorageProperties {
 
     private String uploadDir = "./data/uploads";
     private String exportDir = "./data/exports";
-    private String tempDir = "./data/temp";
+    private String tempDir = "./data/temp/academic-profile";
     private DataSize maxUploadSize = DataSize.ofMegabytes(10);
+    private String encryptionKeyFile = "./data/secrets/file-encryption.key";
+    private boolean migrationEnabled;
 
     public String getUploadDir() {
         return uploadDir;
@@ -43,5 +45,21 @@ public class FileStorageProperties {
 
     public void setMaxUploadSize(DataSize maxUploadSize) {
         this.maxUploadSize = maxUploadSize;
+    }
+
+    public String getEncryptionKeyFile() {
+        return encryptionKeyFile;
+    }
+
+    public void setEncryptionKeyFile(String encryptionKeyFile) {
+        this.encryptionKeyFile = encryptionKeyFile;
+    }
+
+    public boolean isMigrationEnabled() {
+        return migrationEnabled;
+    }
+
+    public void setMigrationEnabled(boolean migrationEnabled) {
+        this.migrationEnabled = migrationEnabled;
     }
 }

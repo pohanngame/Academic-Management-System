@@ -87,6 +87,16 @@ class AdminAuthorizationTest {
                 .andExpect(status().isOk());
     }
 
+    @Test
+    void superAdminCannotAccessTeacherPrivateApi() throws Exception {
+        mvc.perform(get("/api/teacher/profile").with(user("admin").roles("SUPER_ADMIN")))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/files/1/preview").with(user("admin").roles("SUPER_ADMIN")))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/access/audits").with(user("admin").roles("SUPER_ADMIN")))
+                .andExpect(status().isForbidden());
+    }
+
     static Stream<Arguments> adminRequests() {
         return Stream.of(
                 Arguments.of(get("/api/admin/overview")),

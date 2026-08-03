@@ -13,8 +13,8 @@ import stat
 import sys
 import zipfile
 
-FORMAT_VERSION = 1
-DEFAULT_MAX_SCHEMA = 11
+SUPPORTED_FORMAT_VERSIONS = {1, 2}
+DEFAULT_MAX_SCHEMA = 15
 REQUIRED_FILES = {"manifest.json", "database.sql", "secrets/ai-config.key"}
 
 
@@ -71,7 +71,8 @@ def verify_backup(backup: Path, max_schema: int = DEFAULT_MAX_SCHEMA) -> dict:
                 manifest = json.loads(archive.read(manifest_info))
             except (json.JSONDecodeError, UnicodeDecodeError, ValueError):
                 raise VerificationError("backup manifest is invalid") from None
-            if manifest.get("backupFormatVersion") != FORMAT_VERSION:
+            format_version = manifest.get("backupFormatVersion")
+            if format_version not in SUPPORTED_FORMAT_VERSIONS:
                 raise VerificationError("backup format version is not supported")
             try:
                 schema = int(manifest["flywaySchemaVersion"])
@@ -81,6 +82,11 @@ def verify_backup(backup: Path, max_schema: int = DEFAULT_MAX_SCHEMA) -> dict:
                 raise VerificationError("backup schema is newer than the target application")
             if manifest.get("includesAiEncryptionKey") is not True:
                 raise VerificationError("backup does not include the AI encryption key")
+            if format_version == 2:
+                if manifest.get("includesFileEncryptionKey") is not True:
+                    raise VerificationError("backup does not include the file encryption key")
+                if "secrets/file-encryption.key" not in infos:
+                    raise VerificationError("backup is missing the file encryption key")
             declared = manifest.get("files")
             if not isinstance(declared, dict):
                 raise VerificationError("backup file manifest is invalid")

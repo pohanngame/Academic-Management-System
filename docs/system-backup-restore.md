@@ -16,7 +16,7 @@ manifest，因此只允许恢复来自可信系统、经受控渠道传输并由
 浏览器会先构造完整 Blob；接近 `APP_BACKUP_MAXIMUM_DOWNLOAD_BYTES`（默认 512 MiB）时可能占用
 较多浏览器内存，超过上限的包会在响应前删除。“一次性下载票据 + 浏览器原生下载”属于后续优化。
 
-## 包格式 v1
+## 包格式 v2 与旧 v1
 
 文件名为 `academic-profile-backup-YYYYMMDD-HHMMSS-SSS.apbackup`，本质是 ZIP，但只应由本项目
 校验器处理：
@@ -26,6 +26,7 @@ manifest.json
 database.sql
 uploads/**
 secrets/ai-config.key
+secrets/file-encryption.key
 ```
 
 `manifest.json` 记录格式版本、创建时间和时区、应用版本/Git commit、Flyway schema 版本、
@@ -37,7 +38,11 @@ defaults-extra-file，不出现在命令行或日志。
 backups 自身、OCR 模型、Docker 镜像和缓存。新服务器必须使用自己的 `.env` 与 JWT Secret，
 因此来源服务器的旧登录会话自然失效。
 
-创建期间后端阻塞由本应用处理的写请求，先复制 uploads 和不可变 AI 主密钥，再执行 InnoDB 一致性
+v2 将数据库、密文 uploads、AI 配置主密钥和附件加密主密钥放入同一恢复点。缺少任一主密钥时，
+校验和恢复都会失败。v1 仍可校验与恢复；其 uploads 可能是历史明文，恢复后不得错误标记为已加密，
+必须按[历史附件迁移流程](access-control-and-file-encryption.md#历史附件迁移)处理。
+
+创建期间后端阻塞由本应用处理的写请求，先复制 uploads 和不可变主密钥，再执行 InnoDB 一致性
 逻辑导出，最后在同一临时文件系统原子发布完整包。它不承诺抵抗绕过应用直接写数据库或 volume 的
 外部进程；备份窗口内禁止这类操作。同一进程一次只允许一个备份。下载结束、取消或超时后临时包
 会删除；进程重启也会清理残留临时包。
@@ -48,7 +53,7 @@ backups 自身、OCR 模型、Docker 镜像和缓存。新服务器必须使用�
 
 ```bash
 cd /srv/academic-profile
-python3 scripts/verify-backup.py /受控路径/backup.apbackup --max-schema 11
+python3 scripts/verify-backup.py /受控路径/backup.apbackup --max-schema 15
 
 # 等价的恢复脚本只读入口
 scripts/restore-backup.sh --backup /受控路径/backup.apbackup --verify-only
@@ -139,7 +144,8 @@ curl --fail http://127.0.0.1:8088/api/health
 ```
 
 再使用来源账户登录，核对角色/状态、两位教师隔离、附件 SHA-256、历史 AI 任务，并确认 AI 配置能
-使用随包恢复的原 `ai-config.key` 解密。来源环境不应发生任何变化。
+使用随包恢复的原 `ai-config.key` 解密 AI 配置，并使用 `file-encryption.key` 解密附件。来源环境
+不应发生任何变化。
 
 不要执行 `docker compose down -v`、`docker volume prune` 或 `docker system prune --volumes`。
 只允许在名称经过核对的专用演练项目上清理临时资源。至少定期进行一次完全隔离的恢复演练；没有

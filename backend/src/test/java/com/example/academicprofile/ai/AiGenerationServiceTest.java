@@ -31,6 +31,7 @@ import com.example.academicprofile.file.FileDownload;
 import com.example.academicprofile.file.FileBusinessType;
 import com.example.academicprofile.file.FileMetadata;
 import com.example.academicprofile.file.FileStorageService;
+import com.example.academicprofile.security.CurrentUser;
 import com.example.academicprofile.pdf.PdfConversionClient;
 import com.example.academicprofile.word.WordTemplateService;
 import com.example.academicprofile.word.WordTemplateServiceTest;
@@ -86,8 +87,13 @@ class AiGenerationServiceTest {
         when(fileStorageService.readActiveAiWordTemplate(1L, 10L))
                 .thenReturn(new FileDownload(metadata, new ByteArrayResource(templateBytes)));
         when(fileStorageService.getReferencedAiWordTemplateMetadata(1L, 10L)).thenReturn(metadata);
-        when(dataCollector.collect(1L, List.of("teacherProfile")))
-                .thenReturn(Map.of("teacherProfile", Map.of("displayName", "测试教师")));
+        when(dataCollector.collect(
+                any(CurrentUser.class),
+                org.mockito.ArgumentMatchers.eq(List.of("teacherProfile")),
+                any(AiGenerationRequest.class)))
+                .thenReturn(new AiDataCollector.CollectionResult(
+                        Map.of("teacherProfile", Map.of("displayName", "测试教师")),
+                        List.of()));
         when(chatClient.generate(anyString(), any(AiRuntimeConfig.class))).thenReturn("本地 mock 草稿");
 
         AtomicReference<AiGenerationTask> savedTask = new AtomicReference<>();
@@ -158,8 +164,13 @@ class AiGenerationServiceTest {
     @Test
     void oversizedPromptIsRejectedBeforeCreatingTaskOrCallingAi() {
         properties.setMaxPromptChars(100);
-        when(dataCollector.collect(1L, List.of("teacherProfile")))
-                .thenReturn(Map.of("teacherProfile", Map.of("displayName", "测试教师")));
+        when(dataCollector.collect(
+                any(CurrentUser.class),
+                org.mockito.ArgumentMatchers.eq(List.of("teacherProfile")),
+                any(AiGenerationRequest.class)))
+                .thenReturn(new AiDataCollector.CollectionResult(
+                        Map.of("teacherProfile", Map.of("displayName", "测试教师")),
+                        List.of()));
 
         BusinessException exception = assertThrows(
                 BusinessException.class,

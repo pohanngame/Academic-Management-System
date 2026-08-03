@@ -25,6 +25,7 @@ import com.example.academicprofile.file.FileDownload;
 import com.example.academicprofile.file.FileMetadata;
 import com.example.academicprofile.file.FileStorageService;
 import com.example.academicprofile.pdf.PdfConversionClient;
+import com.example.academicprofile.security.CurrentUser;
 import com.example.academicprofile.word.WordTemplateService;
 import com.example.academicprofile.word.WordTemplateService.WordTemplateInspection;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -85,6 +86,12 @@ public class AiGenerationService {
 
     @Transactional
     public AiGenerationTaskResponse createTask(Long teacherId, AiGenerationRequest request) {
+        return createTask(new CurrentUser(-1L, teacherId, "", "", "TEACHER", 0L), request);
+    }
+
+    @Transactional
+    public AiGenerationTaskResponse createTask(CurrentUser actor, AiGenerationRequest request) {
+        Long teacherId = actor.teacherId();
         AiRuntimeConfig runtimeConfig = settingsService.requireRuntimeConfig(teacherId);
         List<String> modules = validateModules(request.selectedModules());
         String requirement = request.templateRequirement() == null ? "" : request.templateRequirement().trim();
@@ -99,9 +106,10 @@ public class AiGenerationService {
                     request.templateFileId());
             templateInspection = inspectTemplate(templateDownload);
         }
-        Map<String, Object> data = dataCollector.collect(teacherId, modules);
+        AiDataCollector.CollectionResult collected = dataCollector.collect(actor, modules, request);
+        Map<String, Object> data = collected.data();
         String templateStructure = templateInspection == null ? null : templateInspection.structureText();
-        String prompt = buildPrompt(requirement, modules, data, templateStructure);
+        String prompt = buildPrompt(requirement, modules, data, templateStructure, request.outputMode());
         validatePromptLength(prompt);
 
         AiGenerationTask task = new AiGenerationTask();
@@ -109,6 +117,9 @@ public class AiGenerationService {
         task.setTemplateFileId(request.templateFileId());
         task.setTemplateRequirement(requirement);
         task.setSelectedModules(toJson(modules));
+        task.setSourceManifest(toJson(collected.sources().stream()
+                .map(source -> source.withRuntime(runtimeConfig))
+                .toList()));
         task.setProvider(runtimeConfig.providerName());
         task.setModelName(runtimeConfig.modelName());
         task.setStatus(STATUS_RUNNING);
@@ -241,11 +252,20 @@ public class AiGenerationService {
             String requirement,
             List<String> modules,
             Map<String, Object> data,
-            String templateStructure) {
+            String templateStructure,
+            String outputMode) {
         try {
             StringBuilder prompt = new StringBuilder();
             prompt.append("请根据教师资料生成正式、清晰、可直接写入 Word 的纯文本内容。\n");
             prompt.append("只能使用提供的教师资料，不得编造事实，不要输出 Markdown 代码块。\n");
+            String mode = outputMode == null ? "AI_DRAFT" : outputMode;
+            if ("DETAIL".equals(mode)) {
+                prompt.append("输出方式：按所选字段逐条列出明细。\n");
+            } else if ("COUNT".equals(mode)) {
+                prompt.append("输出方式：仅按资料模块给出准确数量统计，并保持简洁。\n");
+            } else {
+                prompt.append("输出方式：形成连贯的 AI 整理稿。\n");
+            }
             if (StringUtils.hasText(templateStructure)) {
                 prompt.append("请遵循以下 Word 模板中的静态标题、段落和表格顺序。模板占位符已经移除：\n");
                 prompt.append(templateStructure.replace(WordTemplateService.PLACEHOLDER, "")).append("\n");
@@ -346,11 +366,11 @@ public class AiGenerationService {
         return modules;
     }
 
-    private String toJson(List<String> modules) {
+    private String toJson(Object value) {
         try {
-            return objectMapper.writeValueAsString(modules);
+            return objectMapper.writeValueAsString(value);
         } catch (JsonProcessingException ex) {
-            throw new BusinessException("Failed to save selected modules");
+            throw new BusinessException("Failed to save AI task metadata");
         }
     }
 

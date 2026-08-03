@@ -37,6 +37,7 @@ class BackupServiceTest {
 
     private Path uploads;
     private Path key;
+    private Path fileKey;
     private DatabaseBackupSource database;
     private AiProviderConfigMapper aiConfigs;
     private SystemMaintenanceLock lock;
@@ -47,7 +48,9 @@ class BackupServiceTest {
     void setUp() throws Exception {
         uploads = Files.createDirectories(temp.resolve("uploads"));
         key = Files.createDirectories(temp.resolve("secrets")).resolve("ai-config.key");
+        fileKey = key.getParent().resolve("file-encryption.key");
         Files.writeString(key, "test-master-key-material", StandardCharsets.UTF_8);
+        Files.write(fileKey, new byte[32]);
         Files.writeString(uploads.resolve("attachment.txt"), "private attachment", StandardCharsets.UTF_8);
 
         backup = new BackupProperties();
@@ -57,6 +60,7 @@ class BackupServiceTest {
         FileStorageProperties fileProperties = new FileStorageProperties();
         fileProperties.setUploadDir(uploads.toString());
         fileProperties.setTempDir(temp.resolve("temp").toString());
+        fileProperties.setEncryptionKeyFile(fileKey.toString());
         AiProperties ai = new AiProperties();
         ai.setEncryptionKeyFile(key.toString());
 
@@ -94,9 +98,11 @@ class BackupServiceTest {
             assertThat(zip.getEntry(".env")).isNull();
             assertThat(zip.getEntry("restore-inbox")).isNull();
             JsonNode manifest = new ObjectMapper().readTree(zip.getInputStream(zip.getEntry("manifest.json")));
-            assertThat(manifest.path("backupFormatVersion").asInt()).isEqualTo(1);
+            assertThat(zip.getEntry("secrets/file-encryption.key")).isNotNull();
+            assertThat(manifest.path("backupFormatVersion").asInt()).isEqualTo(2);
             assertThat(manifest.path("files").path("database.sql").path("sha256").asText()).hasSize(64);
             assertThat(manifest.path("includesAiEncryptionKey").asBoolean()).isTrue();
+            assertThat(manifest.path("includesFileEncryptionKey").asBoolean()).isTrue();
         } finally {
             service.deleteArchive(archive);
         }

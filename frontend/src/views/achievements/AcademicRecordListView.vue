@@ -5,6 +5,21 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 
 import { createRecord, deleteRecord, listRecord, updateRecord } from '../../services/academicRecords'
 import {
+  confirmPaperRatings,
+  getJournalMetricSuggestions,
+  previewPaperRatings,
+  searchPublicationVenues
+} from '../../services/publicationRatings'
+import {
+  findBulkSelectedReference,
+  filterBulkConfirmSelection,
+  isValidImpactFactor,
+  isValidMetricYear,
+  sanitizePaperRatingPayload,
+  shouldClearCcfSelection
+} from './publicationRatingRules'
+import { getResourcePolicies, updateResourcePolicies } from '../../services/access'
+import {
   allowedFileAccept,
   deleteFile,
   downloadFile,
@@ -21,6 +36,17 @@ const records = ref([])
 const attachments = ref([])
 const attachmentLoading = ref(false)
 const attachmentUploading = ref(false)
+const policies = ref({})
+const venueMatches = ref([])
+const venueSearchMessage = ref('')
+const venueSearching = ref(false)
+const metricSuggestions = ref([])
+const bulkDialogVisible = ref(false)
+const bulkPreview = ref({ total: 0, page: 1, size: 20, items: [] })
+const bulkSelection = ref([])
+const selectedVenueName = ref('')
+const selectedVenueType = ref('')
+let venueSearchTimer
 
 const configs = {
   projects: {
@@ -59,6 +85,26 @@ const configs = {
       { key: 'authors', label: '作者', type: 'textarea' },
       { key: 'publicationName', label: '期刊/会议/出版物名称' },
       { key: 'publicationType', label: '成果类型' },
+      {
+        key: 'venueType', label: '发表载体', type: 'select', defaultValue: 'UNKNOWN',
+        options: [
+          { value: 'UNKNOWN', label: '待确认' },
+          { value: 'JOURNAL', label: '期刊论文' },
+          { value: 'CONFERENCE', label: '会议论文' }
+        ]
+      },
+      { key: 'venueAbbreviation', label: '标准简称' },
+      { key: 'issn', label: 'ISSN', visibleWhen: (value) => value.venueType === 'JOURNAL' },
+      { key: 'eissn', label: 'eISSN', visibleWhen: (value) => value.venueType === 'JOURNAL' },
+      { key: 'jcrDataYear', label: 'JCR 数据年度', type: 'number', precision: 0, step: 1, visibleWhen: (value) => value.venueType === 'JOURNAL' },
+      { key: 'journalImpactFactor', label: 'Journal Impact Factor', type: 'number', precision: 6, step: 0.1, visibleWhen: (value) => value.venueType === 'JOURNAL' },
+      {
+        key: 'jcrQuartile', label: 'JCR 分区', type: 'select', visibleWhen: (value) => value.venueType === 'JOURNAL',
+        options: ['Q1', 'Q2', 'Q3', 'Q4'].map((value) => ({ value, label: value }))
+      },
+      { key: 'jcrSubject', label: 'JCR 学科', visibleWhen: (value) => value.venueType === 'JOURNAL' },
+      { key: 'metricSourceDescription', label: '指标来源说明', visibleWhen: (value) => value.venueType === 'JOURNAL' },
+      { key: 'metricSourceUrl', label: '指标来源 URL（后端不会访问）', visibleWhen: (value) => value.venueType === 'JOURNAL' },
       { key: 'publishYear', label: '发表年份', type: 'number', precision: 0, step: 1 },
       { key: 'doi', label: 'DOI' },
       { key: 'volume', label: '卷' },
@@ -69,7 +115,7 @@ const configs = {
       { key: 'abstractText', label: '摘要', type: 'textarea', rows: 5 },
       { key: 'keywords', label: '关键词' }
     ],
-    columns: ['title', 'authors', 'publicationName', 'publishYear']
+    columns: ['title', 'authors', 'publicationName', 'venueType', 'ccfRank', 'jcrQuartile', 'journalImpactFactor', 'publishYear']
   },
   patents: {
     title: '专利',
@@ -92,17 +138,34 @@ const configs = {
     fields: [
       { key: 'certificateName', label: '证书名称', required: true },
       { key: 'certificateType', label: '证书类型' },
+      {
+        key: 'competitionCategory',
+        label: '赛事类别',
+        type: 'select',
+        options: [
+          { value: 'FIRST_CLASS', label: '一类' },
+          { value: 'SECOND_CLASS', label: '二类' }
+        ],
+        defaultValue: 'SECOND_CLASS'
+      },
       { key: 'issuingAuthority', label: '颁发机构' },
       { key: 'issueDate', label: '颁发日期', type: 'date' },
       { key: 'description', label: '说明', type: 'textarea' }
     ],
-    columns: ['certificateName', 'certificateType', 'issuingAuthority', 'issueDate']
+    columns: ['certificateName', 'certificateType', 'competitionCategory', 'issuingAuthority', 'issueDate']
   }
 }
 
 const recordType = computed(() => route.meta.recordType)
 const config = computed(() => configs[recordType.value])
 const attachmentBusinessTypes = {
+  papers: 'PAPER',
+  patents: 'PATENT',
+  certificates: 'CERTIFICATE'
+}
+const accessResourceTypes = {
+  projects: 'PROJECT',
+  teachingCourses: 'TEACHING_COURSE',
   papers: 'PAPER',
   patents: 'PATENT',
   certificates: 'CERTIFICATE'
@@ -114,11 +177,22 @@ const form = reactive({})
 function resetForm(record = null) {
   Object.keys(form).forEach((key) => delete form[key])
   for (const field of config.value.fields) {
-    form[field.key] = record?.[field.key] ?? (field.type === 'number' ? null : '')
+    form[field.key] = record?.[field.key] ?? field.defaultValue ?? (field.type === 'number' ? null : '')
   }
   form.sortOrder = record?.sortOrder ?? 0
   form.isPublic = record?.isPublic ?? true
+  form.ccfReferenceId = record?.ccfReferenceId ?? null
+  form.ccfConfirmed = Boolean(record?.ccfConfirmedAt)
+  form.manualCcfRank = null
+  form.manualCcfCategoryId = null
+  form.manualCcfCategoryName = null
+  form.journalMetricReferenceId = null
+  form.metricConfirmed = false
   editingId.value = record?.id ?? null
+  venueMatches.value = []
+  metricSuggestions.value = []
+  selectedVenueName.value = record?.ccfReferenceId ? (record.publicationName || '') : ''
+  selectedVenueType.value = record?.ccfReferenceId ? (record.venueType || '') : ''
 }
 
 function buildPayload() {
@@ -129,17 +203,132 @@ function buildPayload() {
   }
   payload.sortOrder = form.sortOrder ?? 0
   payload.isPublic = form.isPublic ?? true
-  return payload
+  payload.ccfReferenceId = form.ccfReferenceId
+  payload.ccfConfirmed = Boolean(form.ccfConfirmed)
+  payload.manualCcfRank = form.manualCcfRank
+  payload.manualCcfCategoryId = form.manualCcfCategoryId
+  payload.manualCcfCategoryName = form.manualCcfCategoryName
+  payload.journalMetricReferenceId = form.journalMetricReferenceId
+  payload.metricConfirmed = Boolean(form.metricConfirmed)
+  return recordType.value === 'papers' ? sanitizePaperRatingPayload(payload, selectedVenueType.value) : payload
+}
+
+async function loadVenueMatches() {
+  if (recordType.value !== 'papers' || !['JOURNAL', 'CONFERENCE'].includes(form.venueType)
+      || !form.publicationName || form.publicationName.trim().length < 2) {
+    venueMatches.value = []
+    return
+  }
+  venueSearching.value = true
+  try {
+    const response = await searchPublicationVenues(form.publicationName.trim(), form.venueType)
+    venueMatches.value = response.items || []
+    venueSearchMessage.value = response.message || ''
+  } catch {
+    venueMatches.value = []
+    venueSearchMessage.value = 'CCF 参考数据查询失败'
+  } finally {
+    venueSearching.value = false
+  }
+}
+
+function selectVenueMatch(match) {
+  selectedVenueName.value = match.standardName
+  selectedVenueType.value = match.venueType || form.venueType
+  form.ccfReferenceId = match.referenceId
+  form.ccfConfirmed = true
+  form.manualCcfRank = null
+  form.manualCcfCategoryId = null
+  form.manualCcfCategoryName = null
+  form.publicationName = match.standardName
+  form.venueAbbreviation = match.abbreviation || ''
+}
+
+async function loadMetricSuggestions() {
+  try {
+    metricSuggestions.value = await getJournalMetricSuggestions({
+      issn: form.issn || undefined,
+      eissn: form.eissn || undefined,
+      journalName: form.publicationName || undefined,
+      year: form.jcrDataYear || undefined
+    })
+    if (!metricSuggestions.value.length) {
+      ElMessage.info('当前未内置符合许可要求的非官方 JCR 建议数据，请手工填写并自行核实')
+    }
+  } catch (error) {
+    ElMessage.error(error.response?.data?.message || 'JCR 建议查询失败')
+  }
+}
+
+function selectMetricSuggestion(suggestion) {
+  form.journalMetricReferenceId = suggestion.referenceId
+  form.jcrDataYear = suggestion.dataYear
+  form.journalImpactFactor = suggestion.impactFactor
+  form.jcrQuartile = suggestion.jcrQuartile
+  form.jcrSubject = suggestion.subject || ''
+  form.metricSourceDescription = suggestion.sourceName
+  form.metricSourceUrl = suggestion.sourceUrl
+  form.metricConfirmed = false
+}
+
+async function openBulkPreview(page = 1) {
+  try {
+    bulkPreview.value = await previewPaperRatings(page, 20)
+    bulkSelection.value = []
+    bulkDialogVisible.value = true
+  } catch (error) {
+    ElMessage.error(error.response?.data?.message || '历史论文扫描失败')
+  }
+}
+
+function chooseBulkCandidate(item, referenceId) {
+  const existing = bulkSelection.value.find((selection) => selection.paperId === item.paperId)
+  if (existing) existing.referenceId = referenceId
+  else bulkSelection.value.push({ paperId: item.paperId, referenceId, status: item.status })
+}
+
+async function submitBulkConfirmation() {
+  const selected = filterBulkConfirmSelection(bulkSelection.value)
+  if (!selected.length) return ElMessage.warning('请先选择需要确认的匹配结果')
+  try {
+    await confirmPaperRatings(selected.map(({ paperId, referenceId }) => ({ paperId, referenceId })))
+    ElMessage.success(`已确认 ${selected.length} 条 CCF 匹配结果`)
+    bulkDialogVisible.value = false
+    await loadRecords()
+  } catch (error) {
+    ElMessage.error(error.response?.data?.message || '批量确认失败')
+  }
 }
 
 async function loadRecords() {
   loading.value = true
   try {
-    records.value = await listRecord(recordType.value)
+    const [recordList, policyList] = await Promise.all([
+      listRecord(recordType.value),
+      getResourcePolicies(accessResourceTypes[recordType.value])
+    ])
+    records.value = recordList
+    policies.value = Object.fromEntries(policyList.map((item) => [item.resourceId, item]))
   } catch (error) {
     ElMessage.error(error.response?.data?.message || `加载${config.value.title}失败`)
   } finally {
     loading.value = false
+  }
+}
+
+async function savePolicies() {
+  try {
+    await updateResourcePolicies(records.value.map((record) => ({
+      resourceType: accessResourceTypes[recordType.value],
+      resourceId: record.id,
+      viewAllowed: Boolean(policies.value[record.id]?.viewAllowed),
+      downloadAllowed: Boolean(policies.value[record.id]?.downloadAllowed),
+      aiUseAllowed: Boolean(policies.value[record.id]?.aiUseAllowed)
+    })))
+    ElMessage.success('内部访问权限已保存；关闭权限会撤销对应有效授权')
+    await loadRecords()
+  } catch (error) {
+    ElMessage.error(error.response?.data?.message || '保存内部访问权限失败')
   }
 }
 
@@ -158,6 +347,10 @@ function openEditDrawer(record) {
 async function saveRecord() {
   saving.value = true
   try {
+    if (recordType.value === 'papers') {
+      if (!isValidImpactFactor(form.journalImpactFactor)) throw new Error('影响因子必须为非负有限数且最多 6 位小数')
+      if (!isValidMetricYear(form.jcrDataYear)) throw new Error('JCR 数据年度不合法')
+    }
     const payload = buildPayload()
     if (editingId.value) {
       await updateRecord(recordType.value, editingId.value, payload)
@@ -168,7 +361,7 @@ async function saveRecord() {
     drawerVisible.value = false
     await loadRecords()
   } catch (error) {
-    ElMessage.error(error.response?.data?.message || '保存失败')
+    ElMessage.error(error.response?.data?.message || error.message || '保存失败')
   } finally {
     saving.value = false
   }
@@ -215,7 +408,8 @@ async function uploadAttachmentFile(options) {
       editingId.value
     )
     options.onSuccess?.(uploaded)
-    ElMessage.success('附件已上传')
+    ElMessage.success(
+      '附件已加密保存；查看默认开启，下载和 AI 使用申请默认关闭，可在“我的附件权限”中调整。')
     await loadAttachments()
   } catch (error) {
     options.onError?.(error)
@@ -247,13 +441,39 @@ async function removeAttachment(file) {
 }
 
 function fieldLabel(key) {
-  return config.value.fields.find((field) => field.key === key)?.label || key
+  const ratingLabels = {
+    ccfRank: 'CCF 等级',
+    jcrQuartile: 'JCR 分区',
+    journalImpactFactor: '影响因子'
+  }
+  return config.value.fields.find((field) => field.key === key)?.label || ratingLabels[key] || key
+}
+
+function fieldValue(row, key) {
+  const field = config.value.fields.find((item) => item.key === key)
+  if (key === 'venueType') return { JOURNAL: '期刊', CONFERENCE: '会议', UNKNOWN: '待确认' }[row[key]] || '待确认'
+  return field?.options?.find((option) => option.value === row[key])?.label ?? row[key]
 }
 
 watch(recordType, () => {
   resetForm()
   attachments.value = []
   loadRecords()
+})
+
+watch(() => [recordType.value, form.publicationName, form.venueType], () => {
+  if (form.ccfReferenceId && (
+    (selectedVenueName.value && form.publicationName !== selectedVenueName.value)
+    || shouldClearCcfSelection(selectedVenueType.value, form.venueType)
+  )) {
+    form.ccfReferenceId = null
+    form.ccfConfirmed = false
+    form.venueAbbreviation = ''
+    selectedVenueName.value = ''
+    selectedVenueType.value = ''
+  }
+  clearTimeout(venueSearchTimer)
+  venueSearchTimer = setTimeout(loadVenueMatches, 350)
 })
 
 onMounted(() => {
@@ -269,7 +489,11 @@ onMounted(() => {
         <h2>{{ config.title }}</h2>
         <p>{{ config.description }}</p>
       </div>
-      <el-button type="primary" @click="openCreateDrawer">新增</el-button>
+      <div>
+        <el-button v-if="recordType === 'papers'" @click="openBulkPreview()">历史论文智能补全</el-button>
+        <el-button @click="savePolicies">保存内部权限</el-button>
+        <el-button type="primary" @click="openCreateDrawer">新增</el-button>
+      </div>
     </header>
 
     <el-table class="achievement-table" v-loading="loading" :data="records" border>
@@ -277,15 +501,35 @@ onMounted(() => {
       <el-table-column
         v-for="column in config.columns"
         :key="column"
-        :prop="column"
         :label="fieldLabel(column)"
         min-width="160"
-      />
+      >
+        <template #default="{ row }">{{ fieldValue(row, column) }}</template>
+      </el-table-column>
+      <el-table-column v-if="recordType === 'papers'" label="评级状态" min-width="150">
+        <template #default="{ row }">
+          <el-tag v-if="row.ccfConfirmedAt" type="success">
+            {{ row.ccfSource === 'MANUAL_USER_ENTRY' ? 'CCF 人工填写' : 'CCF 用户确认' }}
+          </el-tag>
+          <el-tag v-if="row.metricStatus === 'MANUAL'" type="warning">JCR 人工填写</el-tag>
+          <el-tag v-else-if="row.metricStatus === 'USER_CONFIRMED'" type="success">非官方参考已确认</el-tag>
+          <el-tag v-else-if="row.metricStatus === 'SUGGESTED'" type="info">非官方参考待确认</el-tag>
+        </template>
+      </el-table-column>
       <el-table-column label="公开" width="90">
         <template #default="{ row }">
           <el-tag :type="row.isPublic ? 'success' : 'info'">
             {{ row.isPublic ? '公开' : '隐藏' }}
           </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="内部访问" min-width="250">
+        <template #default="{ row }">
+          <div v-if="policies[row.id]" class="policy-switches">
+            <el-switch v-model="policies[row.id].viewAllowed" active-text="查看" />
+            <el-switch v-model="policies[row.id].downloadAllowed" active-text="可申请下载" />
+            <el-switch v-model="policies[row.id].aiUseAllowed" active-text="可申请 AI" />
+          </div>
         </template>
       </el-table-column>
       <el-table-column label="操作" width="150" fixed="right">
@@ -302,9 +546,9 @@ onMounted(() => {
       size="680px"
     >
       <el-form label-position="top">
+        <template v-for="field in config.fields" :key="field.key">
         <el-form-item
-          v-for="field in config.fields"
-          :key="field.key"
+          v-if="!field.visibleWhen || field.visibleWhen(form)"
           :label="field.label"
           :required="field.required"
         >
@@ -323,6 +567,18 @@ onMounted(() => {
             :step="field.step ?? 1"
             controls-position="right"
           />
+          <el-select
+            v-else-if="field.type === 'select'"
+            v-model="form[field.key]"
+            placeholder="请选择"
+          >
+            <el-option
+              v-for="option in field.options"
+              :key="option.value"
+              :label="option.label"
+              :value="option.value"
+            />
+          </el-select>
           <el-input
             v-else-if="field.type === 'textarea'"
             v-model="form[field.key]"
@@ -331,6 +587,60 @@ onMounted(() => {
           />
           <el-input v-else v-model="form[field.key]" />
         </el-form-item>
+        </template>
+        <section v-if="recordType === 'papers'" class="rating-panel">
+          <el-alert
+            title="CCF 数据来自甲方指定的 2026 年第三方整理快照，不是 CCF 官网实时接口。"
+            type="info"
+            :closable="false"
+            show-icon
+          />
+          <div v-loading="venueSearching" class="venue-matches">
+            <div v-for="match in venueMatches" :key="match.referenceId" class="venue-match">
+              <div>
+                <strong>{{ match.standardName }}</strong>
+                <span>{{ match.abbreviation || '无简称' }} · CCF {{ match.ccfRank }} · {{ match.categoryName }}</span>
+              </div>
+              <el-button size="small" :type="form.ccfReferenceId === match.referenceId ? 'success' : 'primary'" @click="selectVenueMatch(match)">
+                {{ form.ccfReferenceId === match.referenceId ? '已选择并确认' : (match.confirmationRequired ? '选择并确认' : '采用匹配') }}
+              </el-button>
+            </div>
+            <p v-if="form.publicationName && !venueSearching && !venueMatches.length">
+              {{ venueSearchMessage || '未找到 CCF 匹配，可继续保存基本信息或手工填写。' }}
+            </p>
+          </div>
+          <el-collapse>
+            <el-collapse-item title="未找到：手工填写 CCF 快照" name="manual-ccf">
+              <div class="manual-ccf-grid">
+                <el-select v-model="form.manualCcfRank" clearable placeholder="CCF 等级">
+                  <el-option v-for="rank in ['A', 'B', 'C']" :key="rank" :label="rank" :value="rank" />
+                </el-select>
+                <el-input-number v-model="form.manualCcfCategoryId" :min="0" :max="999" placeholder="领域编号" />
+                <el-input v-model="form.manualCcfCategoryName" maxlength="255" placeholder="领域名称" />
+                <el-checkbox v-model="form.ccfConfirmed">我已核实以上手工 CCF 信息</el-checkbox>
+              </div>
+            </el-collapse-item>
+          </el-collapse>
+          <template v-if="form.venueType === 'JOURNAL'">
+            <el-alert
+              title="JCR 分区和影响因子由用户手工填写并自行核实；SJR、中科院分区不等同于 JCR。"
+              type="warning"
+              :closable="false"
+              show-icon
+            />
+            <el-button class="metric-suggestion-button" @click="loadMetricSuggestions">查询非官方参考建议</el-button>
+            <div v-for="suggestion in metricSuggestions" :key="suggestion.referenceId" class="venue-match">
+              <div>
+                <strong>{{ suggestion.journalName }}</strong>
+                <span>{{ suggestion.dataYear }} · {{ suggestion.jcrQuartile }} · IF {{ suggestion.impactFactor }} · 非官方整理</span>
+              </div>
+              <el-button size="small" @click="selectMetricSuggestion(suggestion)">采用为待确认值</el-button>
+            </div>
+            <el-checkbox v-if="form.journalMetricReferenceId" v-model="form.metricConfirmed">
+              我已结合当年度权威数据核实该非官方建议
+            </el-checkbox>
+          </template>
+        </section>
         <div class="form-row">
           <el-form-item label="排序">
             <el-input-number v-model="form.sortOrder" :min="0" controls-position="right" />
@@ -386,6 +696,44 @@ onMounted(() => {
         <el-button type="primary" :loading="saving" @click="saveRecord">保存</el-button>
       </template>
     </el-drawer>
+
+    <el-dialog v-model="bulkDialogVisible" title="历史论文 CCF 智能补全" width="860px">
+      <el-alert title="扫描只生成建议；只有明确选择并确认的论文才会更新，已有确认结果默认不会覆盖。" type="warning" :closable="false" />
+      <el-table :data="bulkPreview.items" border class="bulk-preview-table">
+        <el-table-column prop="title" label="论文" min-width="180" />
+        <el-table-column prop="venueName" label="期刊/会议" min-width="180" />
+        <el-table-column prop="status" label="状态" width="130" />
+        <el-table-column label="候选" min-width="260">
+          <template #default="{ row }">
+            <el-select
+              v-if="row.candidates.length"
+              :model-value="findBulkSelectedReference(bulkSelection, row.paperId)"
+              placeholder="选择并确认候选"
+              @change="(value) => chooseBulkCandidate(row, value)"
+            >
+              <el-option
+                v-for="candidate in row.candidates"
+                :key="candidate.referenceId"
+                :value="candidate.referenceId"
+                :label="`${candidate.standardName} · CCF ${candidate.ccfRank}`"
+              />
+            </el-select>
+            <span v-else>无候选</span>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-pagination
+        v-model:current-page="bulkPreview.page"
+        :page-size="bulkPreview.size"
+        :total="bulkPreview.total"
+        layout="prev, pager, next, total"
+        @current-change="openBulkPreview"
+      />
+      <template #footer>
+        <el-button @click="bulkDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitBulkConfirmation">确认所选结果</el-button>
+      </template>
+    </el-dialog>
   </section>
 </template>
 
@@ -416,6 +764,15 @@ onMounted(() => {
 .achievement-table :deep(.el-table__cell) {
   vertical-align: top;
 }
+.policy-switches { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+.rating-panel { display: grid; gap: 12px; margin: 12px 0 20px; }
+.venue-matches { display: grid; gap: 8px; min-height: 24px; }
+.venue-match { display: flex; justify-content: space-between; gap: 12px; padding: 10px; border: 1px solid #e5e7eb; border-radius: 6px; }
+.venue-match span { display: block; margin-top: 4px; color: #6b7280; font-size: 13px; }
+.metric-suggestion-button { justify-self: start; }
+.manual-ccf-grid { display: grid; grid-template-columns: 130px 130px 1fr; gap: 10px; align-items: center; }
+.manual-ccf-grid .el-checkbox { grid-column: 1 / -1; }
+.bulk-preview-table { margin: 14px 0; }
 
 h2 {
   margin: 0 0 8px;

@@ -15,6 +15,7 @@ public class Certificate {
     private Long teacherId;
     private String certificateName;
     private String certificateType;
+    private String competitionCategory;
     private String issuingAuthority;
     private LocalDate issueDate;
     private String description;
@@ -53,6 +54,14 @@ public class Certificate {
 
     public void setCertificateType(String certificateType) {
         this.certificateType = certificateType;
+    }
+
+    public String getCompetitionCategory() {
+        return competitionCategory;
+    }
+
+    public void setCompetitionCategory(String competitionCategory) {
+        this.competitionCategory = competitionCategory;
     }
 
     public String getIssuingAuthority() {

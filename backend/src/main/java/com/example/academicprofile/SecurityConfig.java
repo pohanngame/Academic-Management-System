@@ -54,6 +54,15 @@ public class SecurityConfig {
                                 "/v3/api-docs/**")
                         .permitAll()
                         .requestMatchers("/api/admin/**").hasRole("SUPER_ADMIN")
+                        .requestMatchers(
+                                "/api/teacher/**",
+                                "/api/files/**",
+                                "/api/export/**",
+                                "/api/bibtex/**",
+                                "/api/ocr/**",
+                                "/api/ai/**",
+                                "/api/access/**")
+                        .hasRole("TEACHER")
                         .anyRequest().authenticated())
                 .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();

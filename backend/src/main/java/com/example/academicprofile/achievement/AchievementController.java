@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.example.academicprofile.common.ApiResponse;
 import com.example.academicprofile.security.SecurityUtils;
+import com.example.academicprofile.publication.PublicationRatingBulkService;
 
 import jakarta.validation.Valid;
 
@@ -21,9 +22,12 @@ import jakarta.validation.Valid;
 public class AchievementController {
 
     private final AchievementService achievementService;
+    private final PublicationRatingBulkService publicationRatings;
 
-    public AchievementController(AchievementService achievementService) {
+    public AchievementController(AchievementService achievementService,
+            PublicationRatingBulkService publicationRatings) {
         this.achievementService = achievementService;
+        this.publicationRatings = publicationRatings;
     }
 
     @GetMapping("/projects")
@@ -89,6 +93,19 @@ public class AchievementController {
     public ApiResponse<Void> deletePaper(@PathVariable Long id) {
         achievementService.deletePaper(currentTeacherId(), id);
         return ApiResponse.ok(null);
+    }
+
+    @GetMapping("/papers/ratings/preview")
+    public ApiResponse<PublicationRatingBulkService.PreviewPage> previewPaperRatings(
+            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "1") int page,
+            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "20") int size) {
+        return ApiResponse.ok(publicationRatings.preview(currentTeacherId(), page, size));
+    }
+
+    @PostMapping("/papers/ratings/confirm")
+    public ApiResponse<Integer> confirmPaperRatings(
+            @RequestBody PublicationRatingBulkService.BulkConfirmRequest request) {
+        return ApiResponse.ok(publicationRatings.confirm(currentTeacherId(), request));
     }
 
     @GetMapping("/patents")

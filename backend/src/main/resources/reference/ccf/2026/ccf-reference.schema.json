@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "CCF journal and conference reference upload",
+  "type": "object",
+  "required": ["year", "name", "organization", "category", "journals", "conferences"],
+  "properties": {
+    "year": { "type": "integer", "minimum": 1900, "maximum": 2200 },
+    "name": { "type": "string", "minLength": 1, "maxLength": 255 },
+    "organization": { "type": "string", "minLength": 1, "maxLength": 255 },
+    "category": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "required": ["id", "chinese", "english"],
+        "properties": {
+          "id": { "type": "integer", "minimum": 0 },
+          "chinese": { "type": "string", "minLength": 1, "maxLength": 255 },
+          "english": { "type": "string", "maxLength": 255 }
+        }
+      }
+    },
+    "journals": { "$ref": "#/$defs/venues" },
+    "conferences": { "$ref": "#/$defs/venues" }
+  },
+  "$defs": {
+    "venues": {
+      "type": "array",
+      "maxItems": 5000,
+      "items": {
+        "type": "object",
+        "required": ["category_id", "rank", "abbr", "name", "publisher", "url"],
+        "properties": {
+          "category_id": { "type": "integer", "minimum": 0 },
+          "rank": { "enum": ["A", "B", "C"] },
+          "abbr": { "type": "string", "maxLength": 128 },
+          "name": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "publisher": { "type": "string", "maxLength": 500 },
+          "url": { "type": "string", "maxLength": 1024 }
+        }
+      }
+    }
+  }
+}

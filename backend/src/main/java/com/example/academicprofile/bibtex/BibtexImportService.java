@@ -17,6 +17,8 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.academicprofile.achievement.Paper;
 import com.example.academicprofile.achievement.PaperMapper;
 import com.example.academicprofile.common.exception.BusinessException;
+import com.example.academicprofile.access.ResourcePolicyService;
+import com.example.academicprofile.access.ResourceType;
 
 @Service
 public class BibtexImportService {
@@ -33,16 +35,19 @@ public class BibtexImportService {
     private final BibtexImportItemMapper itemMapper;
     private final BibtexParserService parserService;
     private final PaperMapper paperMapper;
+    private final ResourcePolicyService resourcePolicies;
 
     public BibtexImportService(
             BibtexImportTaskMapper taskMapper,
             BibtexImportItemMapper itemMapper,
             BibtexParserService parserService,
-            PaperMapper paperMapper) {
+            PaperMapper paperMapper,
+            ResourcePolicyService resourcePolicies) {
         this.taskMapper = taskMapper;
         this.itemMapper = itemMapper;
         this.parserService = parserService;
         this.paperMapper = paperMapper;
+        this.resourcePolicies = resourcePolicies;
     }
 
     @Transactional
@@ -141,6 +146,7 @@ public class BibtexImportService {
             }
             Paper paper = toPaper(teacherId, item);
             paperMapper.insert(paper);
+            resourcePolicies.createDefault(teacherId, ResourceType.PAPER, paper.getId());
             item.setCreatedPaperId(paper.getId());
             item.setStatus(STATUS_IMPORTED);
             item.setSelected(Boolean.FALSE);
@@ -282,6 +288,7 @@ public class BibtexImportService {
         paper.setAuthors(blankToNull(item.getAuthors()));
         paper.setPublicationName(firstText(item.getJournal(), item.getBooktitle()));
         paper.setPublicationType(blankToNull(item.getEntryType()));
+        paper.setVenueType(inferVenueType(item.getEntryType()));
         paper.setPublishYear(item.getYear());
         paper.setDoi(blankToNull(item.getDoi()));
         paper.setVolume(blankToNull(item.getVolume()));
@@ -294,6 +301,15 @@ public class BibtexImportService {
         paper.setSortOrder(0);
         paper.setIsPublic(Boolean.TRUE);
         return paper;
+    }
+
+    private String inferVenueType(String entryType) {
+        if (entryType == null) return "UNKNOWN";
+        return switch (entryType.toLowerCase(java.util.Locale.ROOT)) {
+            case "article" -> "JOURNAL";
+            case "conference", "inproceedings" -> "CONFERENCE";
+            default -> "UNKNOWN";
+        };
     }
 
     private void refreshTaskCounts(Long taskId, Long teacherId) {

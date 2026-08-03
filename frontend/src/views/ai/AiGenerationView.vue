@@ -15,6 +15,7 @@ import {
   updateAiResult
 } from '../../services/aiGeneration'
 import { getAiSettings } from '../../services/aiSettings'
+import { getAiEligibleAttachments, getAllTeacherDirectory } from '../../services/access'
 import {
   allowedWordTemplateAccept,
   deleteFile,
@@ -34,14 +35,36 @@ const modules = ref([])
 const tasks = ref([])
 const wordTemplates = ref([])
 const currentTask = ref(null)
+const sourceTeachers = ref([])
+const aiAttachments = ref([])
 const editedContent = ref('')
 const router = useRouter()
 
 const form = reactive({
   templateFileId: null,
   templateRequirement: '',
-  selectedModules: ['teacherProfile', 'papers', 'projects']
+  selectedModules: ['teacherProfile', 'papers', 'projects'],
+  sourceTeacherIds: [],
+  startYear: null,
+  endYear: null,
+  competitionCategories: [],
+  selectedFields: {},
+  outputMode: 'AI_DRAFT',
+  selectedAttachmentIds: []
 })
+const fieldOptions = {
+  teacherProfile: [['displayName', '姓名'], ['department', '部门'], ['title', '职称'], ['biography', '简介']],
+  academicQualifications: [['degree', '学位/学历'], ['institution', '学校'], ['major', '专业'], ['startDate', '开始日期'], ['endDate', '结束日期'], ['description', '说明']],
+  teachingAreas: [['name', '名称'], ['description', '说明']],
+  researchAreas: [['name', '名称'], ['description', '说明']],
+  professionalServices: [['title', '名称'], ['organization', '机构'], ['role', '角色'], ['startDate', '开始日期'], ['endDate', '结束日期'], ['description', '说明']],
+  workingExperiences: [['organization', '单位'], ['position', '职位'], ['startDate', '开始日期'], ['endDate', '结束日期'], ['description', '说明']],
+  projects: [['projectName', '项目名称'], ['source', '来源'], ['role', '角色'], ['startDate', '开始日期'], ['endDate', '结束日期'], ['fundingAmount', '经费'], ['status', '状态'], ['description', '说明']],
+  teachingCourses: [['courseName', '课程'], ['semester', '学期'], ['className', '班级'], ['teachingTarget', '对象'], ['hours', '学时'], ['description', '说明']],
+  papers: [['title', '标题'], ['authors', '作者'], ['publicationName', '出版物'], ['publicationType', '类型'], ['publishYear', '年份'], ['doi', 'DOI'], ['abstractText', '摘要'], ['keywords', '关键词']],
+  patents: [['patentName', '名称'], ['patentNumber', '专利号'], ['patentType', '类型'], ['status', '状态'], ['applicationDate', '申请日'], ['authorizationDate', '授权日'], ['inventors', '发明人'], ['description', '说明']],
+  certificates: [['certificateName', '名称'], ['certificateType', '类型'], ['competitionCategory', '赛事类别'], ['issuingAuthority', '颁发机构'], ['issueDate', '日期'], ['description', '说明']]
+}
 
 const currentResult = computed(() => currentTask.value?.result || null)
 const canEdit = computed(() => currentResult.value?.status === 'DRAFT')
@@ -51,16 +74,20 @@ const requirementLabel = computed(() => form.templateFileId ? '补充生成要�
 async function loadPage() {
   loading.value = true
   try {
-    const [moduleList, taskList, templateList, settings] = await Promise.all([
+    const [moduleList, taskList, templateList, settings, directory, attachments] = await Promise.all([
       getAiModules(),
       listAiTasks(),
       listFiles('AI_WORD_TEMPLATE'),
-      getAiSettings()
+      getAiSettings(),
+      getAllTeacherDirectory(),
+      getAiEligibleAttachments()
     ])
     modules.value = moduleList
     tasks.value = taskList
     wordTemplates.value = templateList
     aiConfigured.value = settings.configured
+    sourceTeachers.value = directory
+    aiAttachments.value = attachments
   } catch (error) {
     ElMessage.error(error.response?.data?.message || '加载 AI 生成页面失败')
   } finally {
@@ -91,7 +118,14 @@ async function submitTask() {
     const task = await createAiTask({
       templateFileId: form.templateFileId,
       templateRequirement: form.templateRequirement,
-      selectedModules: form.selectedModules
+      selectedModules: form.selectedModules,
+      sourceTeacherIds: form.sourceTeacherIds,
+      startYear: form.startYear,
+      endYear: form.endYear,
+      competitionCategories: form.competitionCategories,
+      selectedFields: form.selectedFields,
+      outputMode: form.outputMode,
+      selectedAttachmentIds: form.selectedAttachmentIds
     })
     await refreshTasks()
     await loadTask(task.id)
@@ -384,6 +418,43 @@ onMounted(loadPage)
               {{ module.label }}
             </el-checkbox>
           </el-checkbox-group>
+        </el-form-item>
+        <el-form-item label="资料人员（留空表示本人）">
+          <el-select v-model="form.sourceTeacherIds" multiple filterable clearable placeholder="本人或已获得 AI_USE 授权的教师">
+            <el-option v-for="teacher in sourceTeachers" :key="teacher.teacherId" :label="`${teacher.displayName} · ${teacher.majorName || '未分配专业'}`" :value="teacher.teacherId" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="已授权附件文本（最多 20 个）">
+          <el-select v-model="form.selectedAttachmentIds" multiple filterable clearable collapse-tags placeholder="仅使用明确选择且 OCR 已确认的附件">
+            <el-option
+              v-for="file in aiAttachments"
+              :key="file.id"
+              :value="file.id"
+              :disabled="!file.ocrConfirmed"
+              :label="`${file.fileName} · ${file.ownerDisplayName} · ${file.resourceType}${file.ocrConfirmed ? '' : '（尚未确认 OCR）'}`"
+            />
+          </el-select>
+          <div class="form-hint">附件正文不会缓存到浏览器；未完成 OCR 确认的附件不能用于 AI。</div>
+        </el-form-item>
+        <div class="form-row">
+          <el-form-item label="开始年份"><el-input-number v-model="form.startYear" :min="1900" :max="2100" /></el-form-item>
+          <el-form-item label="结束年份"><el-input-number v-model="form.endYear" :min="1900" :max="2100" /></el-form-item>
+        </div>
+        <el-form-item label="赛事类别">
+          <el-checkbox-group v-model="form.competitionCategories"><el-checkbox value="FIRST_CLASS">一类</el-checkbox><el-checkbox value="SECOND_CLASS">二类</el-checkbox></el-checkbox-group>
+        </el-form-item>
+        <el-form-item label="输出字段（留空表示该模块全部允许字段）">
+          <div class="field-groups">
+            <div v-for="module in modules.filter((item) => form.selectedModules.includes(item.key))" :key="module.key">
+              <strong>{{ module.label }}</strong>
+              <el-checkbox-group v-model="form.selectedFields[module.key]">
+                <el-checkbox v-for="[value, label] in fieldOptions[module.key] || []" :key="value" :value="value">{{ label }}</el-checkbox>
+              </el-checkbox-group>
+            </div>
+          </div>
+        </el-form-item>
+        <el-form-item label="输出形式">
+          <el-radio-group v-model="form.outputMode"><el-radio-button value="DETAIL">明细</el-radio-button><el-radio-button value="COUNT">数量统计</el-radio-button><el-radio-button value="AI_DRAFT">AI 整理稿</el-radio-button></el-radio-group>
         </el-form-item>
         <el-button type="primary" :loading="generating" :disabled="!aiConfigured" @click="submitTask">
           创建 AI 任务

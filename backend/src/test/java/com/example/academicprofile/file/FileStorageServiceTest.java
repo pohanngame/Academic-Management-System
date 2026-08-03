@@ -1,6 +1,8 @@
 package com.example.academicprofile.file;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -24,6 +26,8 @@ import com.example.academicprofile.achievement.Paper;
 import com.example.academicprofile.achievement.PaperMapper;
 import com.example.academicprofile.achievement.PatentMapper;
 import com.example.academicprofile.common.exception.BusinessException;
+import com.example.academicprofile.access.ResourceAuthorizationService;
+import com.example.academicprofile.access.ResourcePolicyService;
 import com.example.academicprofile.teacher.TeacherProfile;
 import com.example.academicprofile.teacher.TeacherProfileService;
 import com.example.academicprofile.word.WordTemplateService;
@@ -39,6 +43,7 @@ class FileStorageServiceTest {
     private FileMetadataMapper fileMetadataMapper;
     private TeacherProfileService teacherProfileService;
     private PaperMapper paperMapper;
+    private EncryptedFileCodec encryptedFiles;
     private FileStorageService service;
 
     @BeforeEach
@@ -48,6 +53,9 @@ class FileStorageServiceTest {
         paperMapper = mock(PaperMapper.class);
         FileStorageProperties properties = new FileStorageProperties();
         properties.setUploadDir(tempDir.toString());
+        properties.setTempDir(tempDir.resolve("runtime").toString());
+        properties.setEncryptionKeyFile(tempDir.resolve("secrets/file-encryption.key").toString());
+        encryptedFiles = new EncryptedFileCodec(new FileEncryptionKeyManager(properties));
         TeacherProfile profile = new TeacherProfile();
         profile.setId(1L);
         when(teacherProfileService.getByTeacherId(1L)).thenReturn(profile);
@@ -58,7 +66,10 @@ class FileStorageServiceTest {
                 paperMapper,
                 mock(PatentMapper.class),
                 mock(CertificateMapper.class),
-                new WordTemplateService());
+                new WordTemplateService(),
+                encryptedFiles,
+                mock(ResourceAuthorizationService.class),
+                mock(ResourcePolicyService.class));
     }
 
     @Test
@@ -187,9 +198,118 @@ class FileStorageServiceTest {
         verify(fileMetadataMapper, never()).insert(any(FileMetadata.class));
     }
 
+    @Test
+    void readableTempFilePreservesTheValidatedOriginalExtension() {
+        byte[] plaintext = "%PDF-1.7 OCR fixture".getBytes();
+        Path ciphertext = tempDir.resolve("fixture.bin");
+        EncryptedFileCodec.EncryptionResult encryption =
+                encryptedFiles.encrypt(new ByteArrayInputStream(plaintext), ciphertext, "fixture.bin");
+        FileMetadata metadata = new FileMetadata();
+        metadata.setId(40L);
+        metadata.setTeacherId(1L);
+        metadata.setStoredName("fixture.bin");
+        metadata.setStoragePath("fixture.bin");
+        metadata.setFileExt("pdf");
+        metadata.setEncryptionVersion(EncryptedFileCodec.VERSION);
+        metadata.setEncryptionKeyId(encryption.keyId());
+        metadata.setWrappedDek(encryption.wrappedDek());
+        metadata.setCiphertextStatus("ENCRYPTED");
+        metadata.setDeleted(Boolean.FALSE);
+        when(fileMetadataMapper.selectById(40L)).thenReturn(metadata);
+
+        Path readable = service.withReadableTempFile(1L, 40L, path -> {
+            assertTrue(path.getFileName().toString().endsWith(".pdf"));
+            try {
+                assertArrayEquals(plaintext, Files.readAllBytes(path));
+            } catch (IOException ex) {
+                throw new AssertionError(ex);
+            }
+            return path;
+        });
+
+        assertFalse(Files.exists(readable));
+    }
+
+    @Test
+    void readableTempFileRejectsUnsafeDatabaseExtensionBeforeCreatingPlaintext() throws IOException {
+        FileMetadata metadata = encryptedMetadata(41L, "dangerous.exe", "exe", "payload".getBytes());
+        when(fileMetadataMapper.selectById(41L)).thenReturn(metadata);
+
+        assertThrows(
+                BusinessException.class,
+                () -> service.withReadableTempFile(1L, 41L, path -> null));
+
+        assertEquals(0, tempPlaintextCount());
+    }
+
+    @Test
+    void readableTempFileIsDeletedWhenActionFails() throws IOException {
+        FileMetadata metadata = encryptedMetadata(42L, "image.png", "png", "image".getBytes());
+        when(fileMetadataMapper.selectById(42L)).thenReturn(metadata);
+        Path[] observed = new Path[1];
+
+        assertThrows(IllegalStateException.class, () -> service.withReadableTempFile(
+                1L, 42L, path -> {
+                    observed[0] = path;
+                    assertTrue(path.getFileName().toString().endsWith(".png"));
+                    throw new IllegalStateException("synthetic action failure");
+                }));
+
+        assertFalse(Files.exists(observed[0]));
+        assertEquals(0, tempPlaintextCount());
+    }
+
+    @Test
+    void decryptFailureLeavesNoPlaintextTempFile() throws IOException {
+        FileMetadata metadata = encryptedMetadata(43L, "broken.pdf", "pdf", "payload".getBytes());
+        Path ciphertext = tempDir.resolve(metadata.getStoragePath());
+        byte[] bytes = Files.readAllBytes(ciphertext);
+        bytes[bytes.length - 1] ^= 1;
+        Files.write(ciphertext, bytes);
+        when(fileMetadataMapper.selectById(43L)).thenReturn(metadata);
+
+        assertThrows(
+                BusinessException.class,
+                () -> service.withReadableTempFile(1L, 43L, path -> null));
+
+        assertEquals(0, tempPlaintextCount());
+    }
+
+    private FileMetadata encryptedMetadata(Long id, String name, String ext, byte[] plaintext) {
+        String storedName = "fixture-" + id + ".bin";
+        Path ciphertext = tempDir.resolve(storedName);
+        EncryptedFileCodec.EncryptionResult encryption =
+                encryptedFiles.encrypt(new ByteArrayInputStream(plaintext), ciphertext, storedName);
+        FileMetadata metadata = new FileMetadata();
+        metadata.setId(id);
+        metadata.setTeacherId(1L);
+        metadata.setOriginalName(name);
+        metadata.setStoredName(storedName);
+        metadata.setStoragePath(storedName);
+        metadata.setFileExt(ext);
+        metadata.setEncryptionVersion(EncryptedFileCodec.VERSION);
+        metadata.setEncryptionKeyId(encryption.keyId());
+        metadata.setWrappedDek(encryption.wrappedDek());
+        metadata.setCiphertextStatus("ENCRYPTED");
+        metadata.setDeleted(Boolean.FALSE);
+        return metadata;
+    }
+
+    private long tempPlaintextCount() throws IOException {
+        Path runtime = tempDir.resolve("runtime");
+        if (!Files.exists(runtime)) {
+            return 0;
+        }
+        try (var paths = Files.list(runtime)) {
+            return paths.count();
+        }
+    }
+
     private long regularFileCount() throws IOException {
         try (var files = Files.walk(tempDir)) {
-            return files.filter(Files::isRegularFile).count();
+            return files.filter(Files::isRegularFile)
+                    .filter(path -> !path.equals(tempDir.resolve("secrets/file-encryption.key")))
+                    .count();
         }
     }
 }

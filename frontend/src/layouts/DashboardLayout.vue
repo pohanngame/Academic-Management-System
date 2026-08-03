@@ -17,12 +17,14 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useAuthStore } from '../stores/auth'
+import { homeRouteForRole } from '../router/roleNavigation'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
 
 const activeMenu = computed(() => route.path)
+const homeRoute = computed(() => homeRouteForRole(authStore.user?.role))
 
 function handleLogout() {
   authStore.logout()
@@ -35,11 +37,11 @@ function handleLogout() {
     <el-aside class="sidebar" width="248px">
       <div class="brand">学术档案</div>
       <el-menu router :default-active="activeMenu">
-        <el-menu-item index="/dashboard">
+        <el-menu-item :index="homeRoute">
           <el-icon><User /></el-icon>
-          <span>工作台</span>
+          <span>{{ authStore.user?.role === 'SUPER_ADMIN' ? '管理首页' : '工作台' }}</span>
         </el-menu-item>
-        <el-menu-item-group title="简介资料">
+        <el-menu-item-group v-if="authStore.user?.role !== 'SUPER_ADMIN'" title="简介资料">
           <el-menu-item index="/dashboard/profile">
             <el-icon><Notebook /></el-icon>
             <span>教师资料</span>
@@ -65,7 +67,7 @@ function handleLogout() {
             <span>工作经历</span>
           </el-menu-item>
         </el-menu-item-group>
-        <el-menu-item-group title="学术成果">
+        <el-menu-item-group v-if="authStore.user?.role !== 'SUPER_ADMIN'" title="学术成果">
           <el-menu-item index="/dashboard/projects">
             <el-icon><Briefcase /></el-icon>
             <span>科研项目</span>
@@ -95,7 +97,7 @@ function handleLogout() {
             <span>证书</span>
           </el-menu-item>
         </el-menu-item-group>
-        <el-menu-item-group title="工具">
+        <el-menu-item-group v-if="authStore.user?.role !== 'SUPER_ADMIN'" title="工具">
           <el-menu-item index="/dashboard/export">
             <el-icon><Download /></el-icon>
             <span>导出</span>
@@ -108,11 +110,19 @@ function handleLogout() {
             <el-icon><Setting /></el-icon>
             <span>AI 模型设置</span>
           </el-menu-item>
+          <el-menu-item v-if="authStore.user?.role !== 'SUPER_ADMIN'" index="/dashboard/access">
+            <el-icon><Files /></el-icon>
+            <span>资料访问与授权</span>
+          </el-menu-item>
         </el-menu-item-group>
         <el-menu-item-group v-if="authStore.user?.role === 'SUPER_ADMIN'" title="系统管理">
           <el-menu-item index="/dashboard/admin">
             <el-icon><Monitor /></el-icon>
             <span>系统管理</span>
+          </el-menu-item>
+          <el-menu-item index="/dashboard/admin/organization">
+            <el-icon><OfficeBuilding /></el-icon>
+            <span>专业与业务角色</span>
           </el-menu-item>
         </el-menu-item-group>
       </el-menu>

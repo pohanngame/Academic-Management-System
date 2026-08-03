@@ -10,11 +10,15 @@ Spring Boot、Vue 3、MySQL 8.4 和 Docker Compose，教师数据及第三方 AI
 - 附件上传、下载、BibTeX 导入和 OCR
 - Word/Excel 导出及 PDF 转换
 - 每位教师独立配置 OpenAI-compatible AI 服务
-- `TEACHER` / `SUPER_ADMIN` 固定角色
+- `TEACHER` / `SUPER_ADMIN` 系统角色，以及独立的多业务角色和专业范围
+- 资料所有人优先的查看、下载、AI 使用授权与访问审计
+- 管理角色按职责范围浏览资料；普通教师逐人申请，管理角色可在后端核定范围内批量申请
+- Google Tink Streaming AEAD 业务附件加密
 - 管理员概览、用户角色/状态管理和审计日志
-- 完整迁移备份：数据库、uploads 和 AI 加密主密钥
+- 完整迁移备份 v2：数据库、密文 uploads、AI 主密钥和附件加密主密钥
 - SUPER_ADMIN 恢复助手：安全暂存恢复包并生成服务器执行命令
 - Linux 离线校验、恢复和故障回滚工具
+- 由 SUPER_ADMIN 导入的 CCF 2026 本地匹配，以及期刊 JCR 分区和影响因子手工快照
 
 ## 快速启动
 
@@ -55,7 +59,8 @@ docker system prune --volumes
 
 普通注册始终创建 `TEACHER`。教师只能访问自己的档案、附件、AI 配置和生成任务。
 
-`SUPER_ADMIN` 可以访问系统管理控制台，查看概览、管理账户角色/状态、查看管理员审计并创建完整备份。
+`SUPER_ADMIN` 可以访问系统管理控制台，管理账户、专业和业务角色、查看管理员审计并创建完整备份，
+但不能访问教师私人资料。详见[资料授权与附件加密](docs/access-control-and-file-encryption.md)。
 管理员仍不能查看密码哈希、教师 AI Key 明文、冒充教师或绕过教师数据隔离。
 
 系统不会生成默认管理员，也不会把首位注册用户自动提升。首位管理员必须由部署者在服务器终端使用
@@ -72,6 +77,13 @@ docker system prune --volumes
 API Key 使用 AES-256-GCM 加密后存入数据库，真实 Key 不会回显。主密钥位于
 `backend-data:/app/data/secrets/ai-config.key`，数据库备份和主密钥必须属于同一恢复点。
 
+## 期刊与会议评级
+
+系统不捆绑或自动下载第三方 CCF 数据。SUPER_ADMIN 上传有权使用且符合固定年份、SHA-256 和格式的
+CCF 2026 JSON 后，教师可按期刊或会议类型本地匹配，并把确认结果保存为历史快照。期刊的 JCR 分区
+和影响因子由用户手工填写并自行核实；系统不把 SJR 或其他分区冒充 JCR。
+数据来源、匹配规则、批量补全和人工验收见[期刊与会议智能评级](docs/publication-venue-ranking.md)。
+
 ## 完整备份
 
 只有 `SUPER_ADMIN` 可以在管理页创建和下载完整备份，创建前需要重新输入当前密码。
@@ -81,6 +93,7 @@ API Key 使用 AES-256-GCM 加密后存入数据库，真实 Key 不会回显。
 - 应用数据库逻辑备份
 - `/app/data/uploads`
 - `/app/data/secrets/ai-config.key`
+- `/app/data/secrets/file-encryption.key`
 - 带版本和 SHA-256 的 `manifest.json`
 
 备份不包含 `.env`、JWT Secret、数据库密码、镜像、缓存、OCR 模型、target、dist 或 node_modules。
@@ -97,7 +110,7 @@ API Key 使用 AES-256-GCM 加密后存入数据库，真实 Key 不会回显。
 ## 项目目录
 
 ```text
-backend/       Spring Boot 后端和 Flyway V1–V11
+backend/       Spring Boot 后端和 Flyway V1–V15
 frontend/      Vue 3 + Element Plus
 docker/        OCR、PDF 等服务及 Docker 操作说明
 docs/          管理员、部署、备份恢复文档

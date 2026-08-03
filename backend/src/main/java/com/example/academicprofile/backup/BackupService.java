@@ -40,7 +40,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 @Service
 public class BackupService {
 
-    private static final int FORMAT_VERSION = 1;
+    private static final int FORMAT_VERSION = 2;
     private static final DateTimeFormatter FILE_TIMESTAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss-SSS");
 
     private final BackupProperties properties;
@@ -90,6 +90,7 @@ public class BackupService {
             Path uploads = Files.createDirectories(content.resolve("uploads"));
             copyUploads(Path.of(files.getUploadDir()).toAbsolutePath().normalize(), uploads);
             copyEncryptionKey(content.resolve("secrets").resolve("ai-config.key"));
+            copyFileEncryptionKey(content.resolve("secrets").resolve("file-encryption.key"));
             database.dump(content.resolve("database.sql"), work);
 
             Map<String, BackupManifest.FileEntry> entries = collectEntries(content);
@@ -103,6 +104,7 @@ public class BackupService {
                     "MySQL",
                     database.databaseVersion(),
                     entries.size(),
+                    true,
                     true,
                     entries);
             json.writerWithDefaultPrettyPrinter().writeValue(content.resolve("manifest.json").toFile(), manifest);
@@ -220,6 +222,15 @@ public class BackupService {
                     ? "AI encryption key is unavailable; backup was not created"
                     : "AI encryption key is unavailable; initialize AI configuration before backup";
             throw new BusinessException(message);
+        }
+        Files.createDirectories(destination.getParent());
+        Files.copy(source, destination);
+    }
+
+    private void copyFileEncryptionKey(Path destination) throws IOException {
+        Path source = Path.of(files.getEncryptionKeyFile()).toAbsolutePath().normalize();
+        if (!Files.isRegularFile(source, LinkOption.NOFOLLOW_LINKS) || Files.isSymbolicLink(source)) {
+            throw new BusinessException("File encryption key is unavailable; backup was not created");
         }
         Files.createDirectories(destination.getParent());
         Files.copy(source, destination);

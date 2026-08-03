@@ -39,6 +39,14 @@ public class AdminAuditService {
                 .last("LIMIT 1"));
     }
 
+    public AdminAuditLog latestSuccessful(String action) {
+        return mapper.selectOne(new LambdaQueryWrapper<AdminAuditLog>()
+                .eq(AdminAuditLog::getActionType, action)
+                .eq(AdminAuditLog::getSuccess, true)
+                .orderByDesc(AdminAuditLog::getCreatedAt)
+                .last("LIMIT 1"));
+    }
+
     private String sanitize(String summary) {
         if (summary == null) {
             return null;

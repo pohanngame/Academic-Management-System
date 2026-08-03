@@ -9,6 +9,8 @@ import AcademicRecordListView from '../views/achievements/AcademicRecordListView
 import AiGenerationView from '../views/ai/AiGenerationView.vue'
 import AiSettingsView from '../views/ai/AiSettingsView.vue'
 import AdminView from '../views/admin/AdminView.vue'
+import OrganizationView from '../views/admin/OrganizationView.vue'
+import AccessManagementView from '../views/access/AccessManagementView.vue'
 import BibtexImportView from '../views/bibtex/BibtexImportView.vue'
 import DashboardHomeView from '../views/dashboard/DashboardHomeView.vue'
 import ExportConfigView from '../views/export/ExportConfigView.vue'
@@ -16,6 +18,10 @@ import OcrTaskView from '../views/ocr/OcrTaskView.vue'
 import ProfileBlockListView from '../views/profileBlocks/ProfileBlockListView.vue'
 import PublicProfileView from '../views/public/PublicProfileView.vue'
 import ProfileEditView from '../views/teacher/ProfileEditView.vue'
+import {
+  homeRouteForRole,
+  isDashboardPathAllowed
+} from './roleNavigation'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -143,9 +149,20 @@ const router = createRouter({
           component: AiSettingsView
         },
         {
+          path: 'access',
+          name: 'access-management',
+          component: AccessManagementView
+        },
+        {
           path: 'admin',
           name: 'admin',
           component: AdminView,
+          meta: { requiredRole: 'SUPER_ADMIN' }
+        },
+        {
+          path: 'admin/organization',
+          name: 'admin-organization',
+          component: OrganizationView,
           meta: { requiredRole: 'SUPER_ADMIN' }
         }
       ]
@@ -172,11 +189,23 @@ router.beforeEach(async (to) => {
 
   const requiredRole = to.matched.map((record) => record.meta.requiredRole).find(Boolean)
   if (requiredRole && authStore.user?.role !== requiredRole) {
-    return { name: 'dashboard' }
+    return homeRouteForRole(authStore.user?.role)
+  }
+
+  if (authStore.user && !isDashboardPathAllowed(to.path, authStore.user.role)) {
+    return homeRouteForRole(authStore.user.role)
   }
 
   if (to.meta.guestOnly && authStore.isAuthenticated) {
-    return { name: 'dashboard' }
+    if (!authStore.user) {
+      try {
+        await authStore.fetchCurrentUser()
+      } catch {
+        authStore.clearSession()
+        return true
+      }
+    }
+    return homeRouteForRole(authStore.user?.role)
   }
 
   return true

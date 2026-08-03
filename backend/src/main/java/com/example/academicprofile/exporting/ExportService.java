@@ -45,6 +45,7 @@ import com.example.academicprofile.profileblock.TeachingArea;
 import com.example.academicprofile.profileblock.TeachingAreaMapper;
 import com.example.academicprofile.profileblock.WorkingExperience;
 import com.example.academicprofile.profileblock.WorkingExperienceMapper;
+import com.example.academicprofile.publication.PaperRatingVisibility;
 import com.example.academicprofile.teacher.TeacherProfile;
 import com.example.academicprofile.teacher.TeacherProfileService;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -183,7 +184,7 @@ public class ExportService {
             org.apache.poi.ss.usermodel.Row row = sheet.createRow(rowIndex++);
             for (int i = 0; i < selection.fields().size(); i++) {
                 Object value = rowData.get(selection.fields().get(i).key());
-                row.createCell(i).setCellValue(formatValue(value));
+                row.createCell(i).setCellValue(safeSpreadsheetValue(formatValue(value)));
             }
         }
         for (int i = 0; i < selection.fields().size(); i++) {
@@ -442,6 +443,14 @@ public class ExportService {
                         field("authors", "作者", Paper::getAuthors),
                         field("publicationName", "期刊/会议/出版物", Paper::getPublicationName),
                         field("publicationType", "成果类型", Paper::getPublicationType),
+                        field("venueType", "发表载体", Paper::getVenueType),
+                        field("venueAbbreviation", "标准简称", Paper::getVenueAbbreviation),
+                        field("ccfRank", "CCF 等级", item -> item.getCcfConfirmedAt() == null ? null : item.getCcfRank()),
+                        field("ccfCategoryName", "CCF 领域", item -> item.getCcfConfirmedAt() == null ? null : item.getCcfCategoryName()),
+                        field("ccfDataYear", "CCF 数据年度", item -> item.getCcfConfirmedAt() == null ? null : item.getCcfDataYear()),
+                        field("jcrQuartile", "JCR 分区", item -> verifiedMetric(item) ? item.getJcrQuartile() : null),
+                        field("journalImpactFactor", "影响因子", item -> verifiedMetric(item) ? item.getJournalImpactFactor() : null),
+                        field("jcrDataYear", "JCR 数据年度", item -> verifiedMetric(item) ? item.getJcrDataYear() : null),
                         field("publishYear", "发表年份", Paper::getPublishYear),
                         field("doi", "DOI", Paper::getDoi),
                         field("volume", "卷", Paper::getVolume),
@@ -473,10 +482,20 @@ public class ExportService {
                 List.of(
                         field("certificateName", "证书名称", Certificate::getCertificateName),
                         field("certificateType", "证书类型", Certificate::getCertificateType),
+                        field("competitionCategory", "赛事类别", Certificate::getCompetitionCategory),
                         field("issuingAuthority", "颁发机构", Certificate::getIssuingAuthority),
                         field("issueDate", "颁发日期", Certificate::getIssueDate),
                         field("description", "说明", Certificate::getDescription))));
         return result;
+    }
+
+    private boolean verifiedMetric(Paper paper) {
+        return PaperRatingVisibility.hasVerifiedMetric(paper);
+    }
+
+    private String safeSpreadsheetValue(String value) {
+        if (value != null && !value.isEmpty() && "=+-@".indexOf(value.charAt(0)) >= 0) return "'" + value;
+        return value;
     }
 
     private <T> FieldDefinition<T> field(String key, String label, Function<T, Object> reader) {

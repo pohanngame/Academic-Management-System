@@ -53,3 +53,16 @@ export async function deleteStagedRestore(id, currentPassword) {
     data: { currentPassword }
   })
 }
+
+export async function getCcfReferenceStatus() {
+  const { data } = await http.get('/admin/reference-data/ccf')
+  return data.data
+}
+
+export async function importCcfReferenceData(file, currentPassword) {
+  const form = new FormData()
+  form.append('file', file)
+  form.append('currentPassword', currentPassword)
+  const { data } = await http.post('/admin/reference-data/ccf/import', form)
+  return data.data
+}

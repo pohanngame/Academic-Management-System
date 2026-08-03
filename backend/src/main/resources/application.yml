@@ -13,7 +13,7 @@ spring:
     multipart:
       max-file-size: ${SPRING_SERVLET_MULTIPART_MAX_FILE_SIZE:512MB}
       max-request-size: ${SPRING_SERVLET_MULTIPART_MAX_REQUEST_SIZE:513MB}
-      location: ${APP_TEMP_DIR:./data/temp}
+      location: ${APP_TEMP_DIR:./data/temp/academic-profile}
   mvc:
     async:
       request-timeout: ${APP_BACKUP_DOWNLOAD_TIMEOUT:15m}
@@ -26,8 +26,10 @@ app:
   files:
     upload-dir: ${APP_UPLOAD_DIR:./data/uploads}
     export-dir: ${APP_EXPORT_DIR:./data/exports}
-    temp-dir: ${APP_TEMP_DIR:./data/temp}
+    temp-dir: ${APP_TEMP_DIR:./data/temp/academic-profile}
     max-upload-size: ${APP_MAX_UPLOAD_SIZE:10MB}
+    encryption-key-file: ${FILE_ENCRYPTION_KEY_FILE:./data/secrets/file-encryption.key}
+    migration-enabled: ${FILE_ENCRYPTION_MIGRATION_ENABLED:false}
   security:
     jwt-secret: ${APP_JWT_SECRET:change-me-in-environment}
     jwt-expiration-minutes: ${APP_JWT_EXPIRATION_MINUTES:120}
@@ -49,6 +51,10 @@ app:
     inbox-dir: ${APP_RESTORE_INBOX_DIR:./data/restore-inbox}
     max-upload-bytes: ${APP_RESTORE_MAX_UPLOAD_BYTES:536870912}
     staged-ttl: ${APP_RESTORE_STAGED_TTL:24h}
+  publication:
+    ccf:
+      max-upload-bytes: ${APP_CCF_MAX_UPLOAD_BYTES:5242880}
+      enforce-expected-sha256: ${APP_CCF_ENFORCE_EXPECTED_SHA256:true}
   ai:
     max-tokens: ${AI_MAX_TOKENS:1024}
     max-prompt-chars: ${AI_MAX_PROMPT_CHARS:30000}

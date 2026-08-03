@@ -10,6 +10,9 @@ import org.springframework.util.StringUtils;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.example.academicprofile.common.exception.BusinessException;
+import com.example.academicprofile.access.ResourcePolicyService;
+import com.example.academicprofile.access.ResourceType;
+import com.example.academicprofile.publication.PaperRatingService;
 
 @Service
 public class AchievementService {
@@ -19,18 +22,24 @@ public class AchievementService {
     private final PaperMapper paperMapper;
     private final PatentMapper patentMapper;
     private final CertificateMapper certificateMapper;
+    private final ResourcePolicyService resourcePolicies;
+    private final PaperRatingService paperRatings;
 
     public AchievementService(
             ProjectMapper projectMapper,
             TeachingCourseMapper teachingCourseMapper,
             PaperMapper paperMapper,
             PatentMapper patentMapper,
-            CertificateMapper certificateMapper) {
+            CertificateMapper certificateMapper,
+            ResourcePolicyService resourcePolicies,
+            PaperRatingService paperRatings) {
         this.projectMapper = projectMapper;
         this.teachingCourseMapper = teachingCourseMapper;
         this.paperMapper = paperMapper;
         this.patentMapper = patentMapper;
         this.certificateMapper = certificateMapper;
+        this.resourcePolicies = resourcePolicies;
+        this.paperRatings = paperRatings;
     }
 
     public List<Project> listProjects(Long teacherId) {
@@ -46,6 +55,7 @@ public class AchievementService {
         item.setTeacherId(teacherId);
         applyProject(item, request);
         projectMapper.insert(item);
+        resourcePolicies.createDefault(teacherId, ResourceType.PROJECT, item.getId());
         return item;
     }
 
@@ -75,6 +85,7 @@ public class AchievementService {
         item.setTeacherId(teacherId);
         applyTeachingCourse(item, request);
         teachingCourseMapper.insert(item);
+        resourcePolicies.createDefault(teacherId, ResourceType.TEACHING_COURSE, item.getId());
         return item;
     }
 
@@ -104,6 +115,7 @@ public class AchievementService {
         item.setTeacherId(teacherId);
         applyPaper(item, request);
         paperMapper.insert(item);
+        resourcePolicies.createDefault(teacherId, ResourceType.PAPER, item.getId());
         return item;
     }
 
@@ -133,6 +145,7 @@ public class AchievementService {
         item.setTeacherId(teacherId);
         applyPatent(item, request);
         patentMapper.insert(item);
+        resourcePolicies.createDefault(teacherId, ResourceType.PATENT, item.getId());
         return item;
     }
 
@@ -162,6 +175,7 @@ public class AchievementService {
         item.setTeacherId(teacherId);
         applyCertificate(item, request);
         certificateMapper.insert(item);
+        resourcePolicies.createDefault(teacherId, ResourceType.CERTIFICATE, item.getId());
         return item;
     }
 
@@ -207,6 +221,7 @@ public class AchievementService {
         item.setAuthors(blankToNull(request.authors()));
         item.setPublicationName(blankToNull(request.publicationName()));
         item.setPublicationType(blankToNull(request.publicationType()));
+        paperRatings.apply(item, request);
         item.setPublishYear(request.publishYear());
         item.setDoi(blankToNull(request.doi()));
         item.setVolume(blankToNull(request.volume()));
@@ -236,6 +251,7 @@ public class AchievementService {
     private void applyCertificate(Certificate item, CertificateRequest request) {
         item.setCertificateName(request.certificateName());
         item.setCertificateType(blankToNull(request.certificateType()));
+        item.setCompetitionCategory(request.competitionCategory().name());
         item.setIssuingAuthority(blankToNull(request.issuingAuthority()));
         item.setIssueDate(request.issueDate());
         item.setDescription(blankToNull(request.description()));

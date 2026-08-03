@@ -39,7 +39,7 @@ public class AiGenerationController {
 
     @PostMapping("/tasks")
     public ApiResponse<AiGenerationTaskResponse> createTask(@Valid @RequestBody AiGenerationRequest request) {
-        return ApiResponse.ok(aiGenerationService.createTask(currentTeacherId(), request));
+        return ApiResponse.ok(aiGenerationService.createTask(SecurityUtils.currentUser(), request));
     }
 
     @GetMapping("/tasks")

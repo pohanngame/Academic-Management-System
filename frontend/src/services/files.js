@@ -31,6 +31,31 @@ export async function listFiles(businessType, businessId = null) {
   return data.data
 }
 
+export async function listOwnedAttachments() {
+  const { data } = await http.get('/files/attachments')
+  return data.data
+}
+
+export async function pageOwnedAttachments(params) {
+  const response = await http.get('/files/attachments/page', { params })
+  return response.data.data
+}
+
+export async function listSharedFiles(businessType, businessId, permission = 'VIEW') {
+  const { data } = await http.get('/files/shared', { params: { businessType, businessId, permission } })
+  return data.data
+}
+
+export async function previewFile(file) {
+  const response = await http.get(`/files/${file.id}/preview`, { responseType: 'blob' })
+  const blob = new Blob([response.data], {
+    type: response.headers['content-type'] || file.mimeType || 'application/octet-stream'
+  })
+  const url = window.URL.createObjectURL(blob)
+  window.open(url, '_blank', 'noopener,noreferrer')
+  window.setTimeout(() => window.URL.revokeObjectURL(url), 60000)
+}
+
 export async function deleteFile(id) {
   const { data } = await http.delete(`/files/${id}`)
   return data.data

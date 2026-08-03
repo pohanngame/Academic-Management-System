@@ -15,6 +15,7 @@ public class AiGenerationTask {
     private Long templateFileId;
     private String templateRequirement;
     private String selectedModules;
+    private String sourceManifest;
     private String provider;
     private String modelName;
     private String status;
@@ -62,6 +63,9 @@ public class AiGenerationTask {
     public void setSelectedModules(String selectedModules) {
         this.selectedModules = selectedModules;
     }
+
+    public String getSourceManifest() { return sourceManifest; }
+    public void setSourceManifest(String sourceManifest) { this.sourceManifest = sourceManifest; }
 
     public String getProvider() {
         return provider;
