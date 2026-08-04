@@ -24,6 +24,10 @@ RUN apt-get update \
 
 COPY app.py /app/app.py
 
+# Download the exact model set used by app.py while building the image. An empty
+# named volume mounted at /root/.paddlex is initialized from these image files.
+RUN python -c "import app"
+
 EXPOSE 8866
 
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8866"]

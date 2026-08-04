@@ -259,10 +259,6 @@ public class FileStorageService {
     public AuthorizedFileDownload readFile(CurrentUser actor, Long fileId, AccessPermission permission) {
         FileMetadata metadata = getActiveFile(fileId);
         ResourceAuthorizationService.AccessDecision decision = null;
-        if (!actor.teacherId().equals(metadata.getTeacherId())
-                && !"ENCRYPTED".equals(metadata.getCiphertextStatus())) {
-            throw new BusinessException(HttpStatus.CONFLICT, "Attachment has not completed secure migration");
-        }
         if (metadata.getBusinessId() == null) {
             if (!actor.teacherId().equals(metadata.getTeacherId())) {
                 throw new BusinessException(HttpStatus.NOT_FOUND, "File not found");
@@ -275,6 +271,10 @@ public class FileStorageService {
                 authorization.requireOwnerViewEnabled(actor, type, metadata.getBusinessId());
             }
             decision = authorization.require(actor, ResourceType.FILE_ATTACHMENT, metadata.getId(), permission);
+        }
+        if (!actor.teacherId().equals(metadata.getTeacherId())
+                && !"ENCRYPTED".equals(metadata.getCiphertextStatus())) {
+            throw new BusinessException(HttpStatus.CONFLICT, "Attachment has not completed secure migration");
         }
         return new AuthorizedFileDownload(toDownload(metadata), decision);
     }

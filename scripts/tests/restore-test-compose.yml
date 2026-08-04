@@ -70,6 +70,7 @@ services:
   paddleocr:
     profiles: [full]
     image: paddleocr-service:local
+    restart: unless-stopped
     environment:
       HTTP_PROXY: ""
       HTTPS_PROXY: ""
@@ -84,7 +85,7 @@ services:
       interval: 15s
       timeout: 10s
       retries: 20
-      start_period: 300s
+      start_period: 900s
 
   libreoffice:
     profiles: [full]

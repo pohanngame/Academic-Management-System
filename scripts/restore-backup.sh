@@ -259,13 +259,17 @@ MYSQL_ID="$("${DC[@]}" ps -q mysql | tr -d '\r')"
   || { echo "Restore failed: target MySQL container is unavailable" >&2; exit 3; }
 MYSQL_DEADLINE=$((SECONDS + 180))
 while true; do
-  MYSQL_HEALTH="$(docker inspect --format \
-    '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' \
+  MYSQL_STATE_HEALTH="$(docker inspect --format \
+    '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' \
     "$MYSQL_ID")"
-  MYSQL_HEALTH="${MYSQL_HEALTH//$'\r'/}"
+  MYSQL_STATE_HEALTH="${MYSQL_STATE_HEALTH//$'\r'/}"
+  MYSQL_CONTAINER_STATE="${MYSQL_STATE_HEALTH%%|*}"
+  MYSQL_HEALTH="${MYSQL_STATE_HEALTH#*|}"
   [[ "$MYSQL_HEALTH" == "healthy" ]] && break
-  [[ "$MYSQL_HEALTH" != "unhealthy" && $SECONDS -lt $MYSQL_DEADLINE ]] \
-    || { echo "Restore failed: target MySQL did not become healthy" >&2; exit 3; }
+  [[ "$MYSQL_CONTAINER_STATE" == "running" || "$MYSQL_CONTAINER_STATE" == "restarting" ]] \
+    || { echo "Restore failed: target MySQL stopped before becoming healthy" >&2; exit 3; }
+  [[ $SECONDS -lt $MYSQL_DEADLINE ]] \
+    || { echo "Restore failed: target MySQL did not become healthy before timeout" >&2; exit 3; }
   sleep 3
 done
 DB_NAME="$("${DC[@]}" exec -T mysql sh -c 'printf "%s" "$MYSQL_DATABASE"' | tr -d '\r')"
@@ -505,19 +509,24 @@ RESTORE_PHASE="service_start"
 
 RESTORE_PHASE="health_validation"
 SERVICES=(mysql backend frontend paddleocr libreoffice)
-DEADLINE=$((SECONDS + 600))
+DEADLINE=$((SECONDS + 1800))
 for service in "${SERVICES[@]}"; do
   while true; do
     container="$("${DC[@]}" ps -q "$service")"
     container="${container//$'\r'/}"
     [[ -n "$container" ]] \
       || { echo "Restore failed: required service is not running: $service" >&2; false; }
-    health="$(docker inspect --format \
-      '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container")"
-    health="${health//$'\r'/}"
+    state_health="$(docker inspect --format \
+      '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' \
+      "$container")"
+    state_health="${state_health//$'\r'/}"
+    container_state="${state_health%%|*}"
+    health="${state_health#*|}"
     [[ "$health" == "healthy" ]] && break
-    [[ "$health" != "unhealthy" && $SECONDS -lt $DEADLINE ]] \
-      || { echo "Restore failed: required service did not become healthy: $service" >&2; false; }
+    [[ "$container_state" == "running" || "$container_state" == "restarting" ]] \
+      || { echo "Restore failed: required service stopped before becoming healthy: $service" >&2; false; }
+    [[ $SECONDS -lt $DEADLINE ]] \
+      || { echo "Restore failed: required service health check timed out: $service" >&2; false; }
     sleep 5
   done
 done

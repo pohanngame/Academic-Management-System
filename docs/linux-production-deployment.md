@@ -99,7 +99,7 @@ docker compose --profile full up -d --build
 docker compose --profile full ps
 ```
 
-第一个命令构建 backend、frontend、PaddleOCR 和 LibreOffice 镜像，并后台启动五个服务。第二个命令确认状态。首次启动 PaddleOCR 会下载模型，健康检查允许较长启动时间；不要因为仍处于 `starting` 就重复删除或重建数据卷。
+第一个命令构建 backend、frontend、PaddleOCR 和 LibreOffice 镜像，并后台启动五个服务。PaddleOCR 模型在镜像构建阶段下载并预置；首次挂载空模型卷时由 Docker 从镜像初始化，不依赖容器启动时访问外部模型站点。第二个命令确认状态。Compose 为冷启动保留 15 分钟宽限期，恢复脚本最多等待 30 分钟；不要因为仍处于 `starting` 就重复删除或重建数据卷。
 
 当 `mysql`、`paddleocr`、`libreoffice`、`backend` 和 `frontend` 都显示 `healthy` 后，在服务器本机验证：
 

@@ -230,6 +230,15 @@ class CrossTeacherAttachmentAccessIntegrationTest {
     }
 
     @Test
+    void unauthorizedLegacyAttachmentDoesNotLeakMigrationState() throws Exception {
+        jdbc.update("UPDATE file_metadata SET ciphertext_status = 'PLAINTEXT' WHERE id = ?", secondFileId);
+
+        mvc.perform(get("/api/files/{id}/download", secondFileId)
+                        .header("Authorization", bearer(requesterUserId, requesterTeacherId, "TEACHER")))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     void superAdminCannotUseBusinessRolePathToReadPrivateAttachment() throws Exception {
         mvc.perform(get("/api/files/{id}/preview", firstFileId)
                 .header("Authorization", bearer(adminUserId, adminTeacherId, "SUPER_ADMIN")))

@@ -168,6 +168,18 @@ class RestoreScriptSecurityTest(unittest.TestCase):
         cls.script = (Path(__file__).parent.parent / "restore-backup.sh").read_text(
             encoding="utf-8"
         )
+        cls.acceptance_script = (Path(__file__).parent / "test-restore-docker.sh").read_text(
+            encoding="utf-8"
+        )
+        cls.production_compose = (Path(__file__).parents[2] / "docker-compose.yml").read_text(
+            encoding="utf-8"
+        )
+        cls.acceptance_compose = (Path(__file__).parent / "restore-test-compose.yml").read_text(
+            encoding="utf-8"
+        )
+        cls.ocr_dockerfile = (
+            Path(__file__).parents[2] / "docker" / "paddleocr" / "Dockerfile"
+        ).read_text(encoding="utf-8")
 
     def test_backup_sql_is_only_sent_to_restricted_import(self):
         self.assertNotRegex(self.script, r"mysql\s+-uroot[^\n]*database\.sql")
@@ -203,6 +215,31 @@ class RestoreScriptSecurityTest(unittest.TestCase):
             "before_health_check",
         ):
             self.assertIn(point, self.script)
+
+    def test_acceptance_matrix_uses_current_schema_limit(self):
+        self.assertNotIn("--max-schema 11", self.acceptance_script)
+        self.assertEqual(2, self.acceptance_script.count("--max-schema 15"))
+
+    def test_cold_ocr_startup_has_a_consistent_restore_window(self):
+        self.assertIn("start_period: 900s", self.production_compose)
+        self.assertIn("start_period: 900s", self.acceptance_compose)
+        self.assertRegex(
+            self.acceptance_compose,
+            r"(?s)  paddleocr:.*?restart: unless-stopped.*?healthcheck:",
+        )
+        self.assertIn("DEADLINE=$((SECONDS + 1800))", self.script)
+        self.assertIn("local deadline=$((SECONDS + 1800))", self.acceptance_script)
+
+    def test_health_wait_allows_recovery_until_deadline_but_rejects_stopped_containers(self):
+        self.assertNotIn('[[ "$health" != "unhealthy"', self.script)
+        self.assertNotIn('[[ "$health" != "unhealthy"', self.acceptance_script)
+        for script in (self.script, self.acceptance_script):
+            self.assertIn("container_state", script)
+            self.assertIn('"$container_state" == "running"', script)
+            self.assertIn('"$container_state" == "restarting"', script)
+
+    def test_ocr_image_preloads_runtime_models(self):
+        self.assertIn('RUN python -c "import app"', self.ocr_dockerfile)
 
 
 if __name__ == "__main__":

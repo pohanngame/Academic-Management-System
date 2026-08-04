@@ -111,7 +111,8 @@ trap cleanup EXIT
 TEST_STAGE="initialization"
 report_error() {
   local exit_code=$?
-  echo "linux_docker_restore_acceptance=failed stage=$TEST_STAGE exit=$exit_code" >&2
+  local failed_line="${BASH_LINENO[0]:-unknown}"
+  echo "linux_docker_restore_acceptance=failed stage=$TEST_STAGE line=$failed_line exit=$exit_code" >&2
   exit "$exit_code"
 }
 trap report_error ERR
@@ -119,7 +120,7 @@ trap report_error ERR
 wait_healthy() {
   local side="$1"
   shift
-  local deadline=$((SECONDS + 900)) service container health
+  local deadline=$((SECONDS + 1800)) service container state_health container_state health
   for service in "$@"; do
     while true; do
       if [[ "$side" == "source" ]]; then
@@ -129,13 +130,15 @@ wait_healthy() {
       fi
       container="${container//$'\r'/}"
       if [[ -n "$container" ]]; then
-        health="$(docker inspect --format \
-          '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' \
+        state_health="$(docker inspect --format \
+          '{{.State.Status}}|{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' \
           "$container")"
-        health="${health//$'\r'/}"
+        state_health="${state_health//$'\r'/}"
+        container_state="${state_health%%|*}"
+        health="${state_health#*|}"
         [[ "$health" == "healthy" ]] && break
-        [[ "$health" != "unhealthy" ]] || {
-          echo "Test service became unhealthy" >&2
+        [[ "$container_state" == "running" || "$container_state" == "restarting" ]] || {
+          echo "Test service stopped before becoming healthy" >&2
           return 1
         }
       fi
@@ -310,7 +313,7 @@ printf '{"currentPassword":"%s"}' "$ADMIN_PASSWORD" \
       -o /tmp/source.apbackup \
       http://127.0.0.1:8080/api/admin/backups/export
 source_dc exec -T backend cat /tmp/source.apbackup > "$BACKUP"
-python3 "$OPERATIONS_DIR/verify-backup.py" "$BACKUP" --max-schema 11 >/dev/null
+python3 "$OPERATIONS_DIR/verify-backup.py" "$BACKUP" --max-schema 15 >/dev/null
 
 SOURCE_COUNTS="$(
   printf "SELECT (SELECT COUNT(*) FROM user),(SELECT COUNT(*) FROM teacher_profile),(SELECT COUNT(*) FROM project),(SELECT COUNT(*) FROM file_metadata),(SELECT COUNT(*) FROM ai_provider_config),(SELECT COUNT(*) FROM ai_generation_task);\n" \
@@ -381,7 +384,10 @@ ISOLATION_STATUS="$(
     -H "Authorization: Bearer $TARGET_TEACHER_B_TOKEN" \
     "http://127.0.0.1:8080/api/files/$UPLOAD_ID/download"
 )"
-[[ "$ISOLATION_STATUS" == "404" ]]
+[[ "$ISOLATION_STATUS" == "404" ]] || {
+  echo "Unexpected cross-teacher download status: $ISOLATION_STATUS" >&2
+  false
+}
 echo "empty_restore=passed counts=$TARGET_COUNTS services_healthy=5"
 
 TEST_STAGE="nonempty_rejection"
@@ -449,7 +455,7 @@ with zipfile.ZipFile(source) as current:
                 database if info.filename == "database.sql" else current.read(info),
             )
 PY
-python3 "$OPERATIONS_DIR/verify-backup.py" "$MALICIOUS" --max-schema 11 >/dev/null
+python3 "$OPERATIONS_DIR/verify-backup.py" "$MALICIOUS" --max-schema 15 >/dev/null
 
 if RESTORE_TEST_CONFIRMATION="RESTORE $TARGET_PROJECT" \
     "$OPERATIONS_DIR/restore-backup.sh" \

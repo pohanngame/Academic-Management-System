@@ -95,8 +95,9 @@ docker compose --profile full start
 - PaddleOCR：OpenAPI 端点可访问。
 - LibreOffice：转换服务健康端点可访问。
 
-PaddleOCR 首次启动可能需要下载模型，较长时间显示 `starting` 属于正常现象。持续 unhealthy 时查看对应
-服务日志，不要通过删除 volume 规避问题。
+PaddleOCR 镜像在构建阶段下载并预置运行所需模型；首次挂载空的 `paddleocr_models` 命名卷时，
+Docker 会用镜像内模型初始化该卷，启动阶段不应依赖外部模型站点。Compose 仍保留 15 分钟宽限期，
+恢复脚本最多等待 30 分钟；持续 unhealthy 时查看对应服务日志，不要通过删除 volume 规避问题。
 
 ## 明确禁止
 
