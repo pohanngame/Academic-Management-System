@@ -1,6 +1,7 @@
 package com.example.academicprofile.access;
 
 import java.time.LocalDateTime;
+import java.util.Optional;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -36,25 +37,30 @@ public class ResourceAuthorizationService {
 
     public AccessDecision require(
             CurrentUser actor, ResourceType type, Long resourceId, AccessPermission permission) {
+        return findAuthorized(actor, type, resourceId, permission).orElseThrow(this::denied);
+    }
+
+    public Optional<AccessDecision> findAuthorized(
+            CurrentUser actor, ResourceType type, Long resourceId, AccessPermission permission) {
         Long owner = catalog.owner(type, resourceId);
         if (UserRole.SUPER_ADMIN.name().equals(actor.role())) {
-            throw denied();
+            return Optional.empty();
         }
         if (owner.equals(actor.teacherId())) {
-            return new AccessDecision(owner, null);
+            return Optional.of(new AccessDecision(owner, null));
         }
         ResourceAccessPolicy policy = policy(type, resourceId, owner);
         if (!Boolean.TRUE.equals(policy.getViewAllowed())) {
-            throw denied();
+            return Optional.empty();
         }
         if (permission == AccessPermission.VIEW && inManagementScope(actor, owner)) {
-            return new AccessDecision(owner, null);
+            return Optional.of(new AccessDecision(owner, null));
         }
         if (permission == AccessPermission.DOWNLOAD && !Boolean.TRUE.equals(policy.getDownloadAllowed())) {
-            throw denied();
+            return Optional.empty();
         }
         if (permission == AccessPermission.AI_USE && !Boolean.TRUE.equals(policy.getAiUseAllowed())) {
-            throw denied();
+            return Optional.empty();
         }
         ResourceAccessGrant grant = grants.selectOne(new LambdaQueryWrapper<ResourceAccessGrant>()
                 .eq(ResourceAccessGrant::getRequesterTeacherId, actor.teacherId())
@@ -68,9 +74,9 @@ public class ResourceAuthorizationService {
                 .orderByDesc(ResourceAccessGrant::getExpiresAt)
                 .last("LIMIT 1"));
         if (grant == null) {
-            throw denied();
+            return Optional.empty();
         }
-        return new AccessDecision(owner, grant);
+        return Optional.of(new AccessDecision(owner, grant));
     }
 
     public boolean inManagementScope(CurrentUser actor, Long ownerTeacherId) {

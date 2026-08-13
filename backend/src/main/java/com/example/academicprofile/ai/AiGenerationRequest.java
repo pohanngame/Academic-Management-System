@@ -16,10 +16,26 @@ public record AiGenerationRequest(
         @Size(max = 2) List<String> competitionCategories,
         Map<String, List<String>> selectedFields,
         String outputMode,
-        @Size(max = 20) List<Long> selectedAttachmentIds) {
+        @Size(max = 20) List<Long> selectedAttachmentIds,
+        String templateType) {
 
     public AiGenerationRequest(
             Long templateFileId, String templateRequirement, List<String> selectedModules) {
-        this(templateFileId, templateRequirement, selectedModules, null, null, null, null, null, "AI_DRAFT", null);
+        this(templateFileId, templateRequirement, selectedModules, null, null, null, null, null, "AI_DRAFT", null, null);
+    }
+
+    public AiGenerationRequest(
+            Long templateFileId,
+            String templateRequirement,
+            List<String> selectedModules,
+            List<Long> sourceTeacherIds,
+            Integer startYear,
+            Integer endYear,
+            List<String> competitionCategories,
+            Map<String, List<String>> selectedFields,
+            String outputMode,
+            List<Long> selectedAttachmentIds) {
+        this(templateFileId, templateRequirement, selectedModules, sourceTeacherIds, startYear, endYear,
+                competitionCategories, selectedFields, outputMode, selectedAttachmentIds, null);
     }
 }

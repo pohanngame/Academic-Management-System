@@ -356,9 +356,14 @@ async function cancel(row) {
 }
 
 async function revoke(row) {
-  await ElMessageBox.confirm('撤销后立即失效，确认继续？', '撤销授权', { type: 'warning' })
+  await ElMessageBox.confirm(
+    `仅撤销“${row.resourceName || `资料 #${row.resourceId}`}”的本条授权；同一教师的其他资料授权不受影响。确认继续？`,
+    '撤销单项授权',
+    { type: 'warning' }
+  )
   await revokeAccessGrant(row.id)
   await load()
+  ElMessage.success('本条资料授权已撤销；其他资料授权保持不变')
 }
 
 async function openGranted(row) {

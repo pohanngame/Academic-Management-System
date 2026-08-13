@@ -87,6 +87,8 @@ openssl rand -hex 48
 
 第三方 AI 的服务商、Base URL、模型名称和 API Key 不再写入 `.env`。系统启动后，每位教师登录并在“AI 模型设置”中独立保存和测试自己的配置。数据库只保存 API Key 密文；真实 Key 不会回显。
 
+`AI_MAX_TOKENS` 控制单次正式生成允许的最大输出量，Compose 默认值为 `4096`，应用也会拒绝超过 `4096` 的配置。官方 DeepSeek V4 默认开启思考模式；系统对 `api.deepseek.com` 的 `deepseek-v4-flash` 和 `deepseek-v4-pro` 自动按官方参数关闭思考，避免思考过程耗尽额度而没有正文。其他 OpenAI-compatible 服务保持原请求协议。提高输出量可能增加调用费用，修改 `.env` 后必须重建或重新创建 backend 容器才会生效。连接测试仍使用极短请求，不代表长篇正式生成一定能返回正文。
+
 完整 Compose 模式会在容器内强制使用 `mysql`、`paddleocr` 和 `libreoffice` 服务名，因此不需要把 `DB_URL`、`OCR_BASE_URL` 或 `DOCUMENT_CONVERSION_BASE_URL` 改成服务器 IP。
 
 ## 5. 首次构建和启动
@@ -168,6 +170,10 @@ docker compose --profile full ps
 历史论文的发表载体保持 `UNKNOWN`，不会在迁移时被批量认定为期刊。部署完成后由 `SUPER_ADMIN` 在
 系统管理页上传有权使用的 CCF JSON；系统核对固定年份、SHA-256 和格式后事务导入。未导入时论文基本
 功能和 JCR 手工填写仍可使用，自动匹配安全返回未配置状态。详见[期刊与会议智能评级](publication-venue-ranking.md)。
+
+schema 16 为 AI 生成任务增加 Word 输出样式快照。旧的自定义模板任务会标记为 `CUSTOM`，其余历史
+任务保持系统通用输出；迁移不会改写 AI 结果、模板文件或附件。部署前仍需先创建完整备份。模板使用
+和人工检查见 [AI 生成与 Word 模板](ai-word-templates.md)。
 
 生产 Compose 默认设置 `APP_CCF_MAX_UPLOAD_BYTES=5242880` 和
 `APP_CCF_ENFORCE_EXPECTED_SHA256=true`。上传暂存使用 `/app/tmp/academic-profile` 的 tmpfs，不进入

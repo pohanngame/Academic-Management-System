@@ -13,6 +13,7 @@ public class AiGenerationTask {
     private Long id;
     private Long teacherId;
     private Long templateFileId;
+    private String templateType;
     private String templateRequirement;
     private String selectedModules;
     private String sourceManifest;
@@ -46,6 +47,14 @@ public class AiGenerationTask {
 
     public void setTemplateFileId(Long templateFileId) {
         this.templateFileId = templateFileId;
+    }
+
+    public String getTemplateType() {
+        return templateType;
+    }
+
+    public void setTemplateType(String templateType) {
+        this.templateType = templateType;
     }
 
     public String getTemplateRequirement() {

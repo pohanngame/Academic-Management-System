@@ -8,6 +8,7 @@ import com.example.academicprofile.file.FileMetadata;
 public record AiGenerationTaskResponse(
         Long id,
         Long templateFileId,
+        String templateType,
         String templateFileName,
         Boolean templateDeleted,
         String templateRequirement,
@@ -28,6 +29,7 @@ public record AiGenerationTaskResponse(
         return new AiGenerationTaskResponse(
                 task.getId(),
                 task.getTemplateFileId(),
+                task.getTemplateType(),
                 templateFile == null ? null : templateFile.getOriginalName(),
                 templateFile == null ? null : templateFile.getDeleted(),
                 task.getTemplateRequirement(),

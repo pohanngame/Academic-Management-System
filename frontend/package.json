@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "test": "node --test tests/roleNavigation.test.js tests/accessUiRules.test.js tests/publicationRatingRules.test.js tests/ccfReferenceAdminRules.test.js",
+    "test": "node --test tests/roleNavigation.test.js tests/accessUiRules.test.js tests/publicationRatingRules.test.js tests/ccfReferenceAdminRules.test.js tests/aiWordTemplateRules.test.js",
     "preview": "vite preview"
   },
   "dependencies": {

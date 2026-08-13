@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.util.List;
+import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -18,6 +19,7 @@ import com.example.academicprofile.access.ResourceAccessAuditService;
 import com.example.academicprofile.access.ResourceAuthorizationService;
 import com.example.academicprofile.access.ResourceType;
 import com.example.academicprofile.achievement.AchievementService;
+import com.example.academicprofile.achievement.Paper;
 import com.example.academicprofile.common.exception.BusinessException;
 import com.example.academicprofile.file.FileBusinessType;
 import com.example.academicprofile.file.FileMetadata;
@@ -93,6 +95,36 @@ class AiDataCollectorAttachmentTest {
         assertThatThrownBy(() -> collector.collect(actor(7L), List.of(), request(List.of(31L))))
                 .isInstanceOfSatisfying(BusinessException.class,
                         ex -> assertThat(ex.getMessage()).contains("OCR"));
+    }
+
+    @Test
+    void partiallyAuthorizedTeacherContributesOnlyGrantedPaper() {
+        AchievementService achievements = mock(AchievementService.class);
+        collector = new AiDataCollector(
+                mock(TeacherProfileService.class), mock(ProfileBlockService.class), achievements,
+                authorization, audits, new ObjectMapper(), files, ocrTasks);
+        Paper granted = new Paper();
+        granted.setId(41L);
+        granted.setTeacherId(8L);
+        granted.setTitle("granted paper");
+        Paper denied = new Paper();
+        denied.setId(42L);
+        denied.setTeacherId(8L);
+        denied.setTitle("denied paper");
+        when(achievements.listPapers(8L)).thenReturn(List.of(granted, denied));
+        when(authorization.findAuthorized(any(), any(), org.mockito.ArgumentMatchers.eq(41L), any()))
+                .thenReturn(Optional.of(new ResourceAuthorizationService.AccessDecision(8L, null)));
+        when(authorization.findAuthorized(any(), any(), org.mockito.ArgumentMatchers.eq(42L), any()))
+                .thenReturn(Optional.empty());
+        AiGenerationRequest request = new AiGenerationRequest(
+                null, "test", List.of("papers"), List.of(8L), null, null,
+                null, null, "AI_DRAFT", null);
+
+        var result = collector.collect(actor(7L), List.of("papers"), request);
+
+        assertThat(result.data().get("papers").toString()).contains("granted paper").doesNotContain("denied paper");
+        assertThat(result.sources()).extracting(AiDataCollector.SourceReference::resourceId)
+                .containsExactly(41L);
     }
 
     private AiGenerationRequest request(List<Long> attachmentIds) {

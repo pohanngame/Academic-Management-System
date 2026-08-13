@@ -132,7 +132,11 @@ public class AiDataCollector {
                     if (!matchesFilters(module, rawMap, request)) {
                         continue;
                     }
-                    var decision = authorization.require(actor, type, resourceId, AccessPermission.AI_USE);
+                    var decision = authorization.findAuthorized(actor, type, resourceId, AccessPermission.AI_USE)
+                            .orElse(null);
+                    if (decision == null) {
+                        continue;
+                    }
                     audits.record(actor, decision.ownerTeacherId(), "AI_USE", type, resourceId,
                             null, decision.grant(), true, null, "AI material generation");
                     Map<String, Object> row = sanitizeMap(rawMap, selected);
@@ -146,6 +150,16 @@ public class AiDataCollector {
             data.put(module, rows);
         }
         collectAttachments(actor, request.selectedAttachmentIds(), data, sources);
+        Set<Long> requestedOthers = teachers.stream()
+                .filter(id -> !actor.teacherId().equals(id))
+                .collect(java.util.stream.Collectors.toSet());
+        Set<Long> contributedOthers = sources.stream()
+                .map(SourceReference::teacherId)
+                .filter(requestedOthers::contains)
+                .collect(java.util.stream.Collectors.toSet());
+        if (!requestedOthers.isEmpty() && contributedOthers.isEmpty()) {
+            throw new BusinessException("所选人员在当前数据范围内没有可用的 AI 授权资料，请调整资料人员、数据范围或重新申请权限");
+        }
         return new CollectionResult(data, sources);
     }
 

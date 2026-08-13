@@ -36,6 +36,10 @@ backend 的 `/app/tmp` 是独立 tmpfs，不属于 `backend-data`。Spring multi
 CCF JSON 管理员上传也使用该 tmpfs，默认最多 5 MiB。Compose 不下载或捆绑第三方完整 CCF 数据；
 具体导入和许可边界见[期刊与会议智能评级](../docs/publication-venue-ranking.md)。
 
+教师自定义 Word 模板沿用 `backend-data` 中的密文 uploads 和现有 10 MiB 业务文件上限。示例模板与
+“下载测试效果”由后端在内存中生成并直接响应，不写入持久化目录，也不调用第三方 AI。详细规则见
+[AI 生成与 Word 模板](../docs/ai-word-templates.md)。
+
 ## 配置和启动
 
 ```bash

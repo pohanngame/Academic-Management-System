@@ -10,6 +10,8 @@ Spring Boot、Vue 3、MySQL 8.4 和 Docker Compose，教师数据及第三方 AI
 - 附件上传、下载、BibTeX 导入和 OCR
 - Word/Excel 导出及 PDF 转换
 - 每位教师独立配置 OpenAI-compatible AI 服务
+- 三种内置 Word 输出样式，以及经确认后可自动追加正文位置的教师自定义 DOCX 模板
+- AI 来源人员只包含本人及当前拥有有效 `AI_USE` 授权的教师，并按具体资料实时鉴权
 - `TEACHER` / `SUPER_ADMIN` 系统角色，以及独立的多业务角色和专业范围
 - 资料所有人优先的查看、下载、AI 使用授权与访问审计
 - 管理角色按职责范围浏览资料；普通教师逐人申请，管理角色可在后端核定范围内批量申请
@@ -77,6 +79,14 @@ docker system prune --volumes
 API Key 使用 AES-256-GCM 加密后存入数据库，真实 Key 不会回显。主密钥位于
 `backend-data:/app/data/secrets/ai-config.key`，数据库备份和主密钥必须属于同一恢复点。
 
+AI 材料生成推荐使用系统 Word 模板；高级用户也可上传只含一个 `{{aiContent}}` 的 DOCX。合法模板
+没有占位符时，系统会先征得确认，再把正文位置添加到文末。示例模板、测试生成、限制和历史任务重放
+规则见 [AI 生成与 Word 模板](docs/ai-word-templates.md)。
+
+官方 DeepSeek V4 默认启用思考模式。对 `https://api.deepseek.com` 的 `deepseek-v4-flash` 和
+`deepseek-v4-pro`，材料生成会按官方参数关闭思考模式，避免思考过程耗尽输出额度而没有最终正文；
+其他 OpenAI-compatible 服务不会收到该专属参数。
+
 ## 期刊与会议评级
 
 系统不捆绑或自动下载第三方 CCF 数据。SUPER_ADMIN 上传有权使用且符合固定年份、SHA-256 和格式的
@@ -110,7 +120,7 @@ CCF 2026 JSON 后，教师可按期刊或会议类型本地匹配，并把确认
 ## 项目目录
 
 ```text
-backend/       Spring Boot 后端和 Flyway V1–V15
+backend/       Spring Boot 后端和 Flyway V1–V16
 frontend/      Vue 3 + Element Plus
 docker/        OCR、PDF 等服务及 Docker 操作说明
 docs/          管理员、部署、备份恢复文档

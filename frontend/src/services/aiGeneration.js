@@ -5,6 +5,11 @@ export async function getAiModules() {
   return data.data
 }
 
+export async function getAiSourceTeachers() {
+  const { data } = await http.get('/ai/source-teachers')
+  return data.data
+}
+
 export async function createAiTask(payload) {
   const { data } = await http.post('/ai/tasks', payload)
   return data.data
@@ -33,6 +38,28 @@ export async function confirmAiTask(id) {
 export async function deleteAiTask(id) {
   const { data } = await http.delete(`/ai/tasks/${id}`)
   return data.data
+}
+
+export async function uploadAiWordTemplate(file, appendMissingPlaceholder = false) {
+  const formData = new FormData()
+  formData.append('file', file)
+  const { data } = await http.post('/ai/templates/custom', formData, {
+    params: { appendMissingPlaceholder }
+  })
+  return data.data
+}
+
+export async function downloadAiWordTemplateExample() {
+  const response = await http.get('/ai/templates/example', { responseType: 'blob' })
+  downloadBlobResponse(response, 'ai-word-template-example.docx')
+}
+
+export async function downloadAiWordTemplateTest(templateType, templateFileId = null) {
+  const response = await http.get('/ai/templates/test', {
+    params: { templateType, ...(templateFileId ? { templateFileId } : {}) },
+    responseType: 'blob'
+  })
+  downloadBlobResponse(response, 'ai-word-template-test.docx')
 }
 
 export async function downloadAiWord(task) {
@@ -78,4 +105,18 @@ function fileNameFromDisposition(disposition) {
   }
   const plainMatch = disposition.match(/filename="?([^"]+)"?/i)
   return plainMatch?.[1] || ''
+}
+
+function downloadBlobResponse(response, fallbackName) {
+  const blob = new Blob([response.data], {
+    type: response.headers['content-type'] || 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  })
+  const url = window.URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = fileNameFromDisposition(response.headers['content-disposition']) || fallbackName
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  window.URL.revokeObjectURL(url)
 }

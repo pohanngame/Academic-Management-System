@@ -1,0 +1,13 @@
+package com.example.academicprofile.word;
+
+public enum WordTemplateValidationCode {
+    VALID_EXACT_PLACEHOLDER,
+    PLACEHOLDER_MISSING,
+    MULTIPLE_PLACEHOLDERS,
+    UNSUPPORTED_PLACEHOLDER_LOCATION,
+    UNKNOWN_TEMPLATE_TAG,
+    INVALID_DOCX,
+    ENCRYPTED_DOCX,
+    FILE_TOO_LARGE,
+    UNSUPPORTED_FILE_TYPE
+}

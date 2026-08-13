@@ -27,14 +27,23 @@ import jakarta.validation.Valid;
 public class AiGenerationController {
 
     private final AiGenerationService aiGenerationService;
+    private final AiSourceTeacherService sourceTeachers;
 
-    public AiGenerationController(AiGenerationService aiGenerationService) {
+    public AiGenerationController(
+            AiGenerationService aiGenerationService,
+            AiSourceTeacherService sourceTeachers) {
         this.aiGenerationService = aiGenerationService;
+        this.sourceTeachers = sourceTeachers;
     }
 
     @GetMapping("/modules")
     public ApiResponse<List<AiModuleDefinition>> modules() {
         return ApiResponse.ok(aiGenerationService.moduleDefinitions());
+    }
+
+    @GetMapping("/source-teachers")
+    public ApiResponse<List<AiSourceTeacherResponse>> sourceTeachers() {
+        return ApiResponse.ok(sourceTeachers.list(SecurityUtils.currentUser()));
     }
 
     @PostMapping("/tasks")

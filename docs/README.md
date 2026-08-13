@@ -9,7 +9,8 @@
 5. [完整备份与恢复](system-backup-restore.md)：备份安全边界、恢复助手、校验、离线恢复和隔离演练。
 6. [Docker 操作手册](../docker/README.md)：Compose 服务、端口、volume、构建和容器运维。
 7. [期刊与会议智能评级](publication-venue-ranking.md)：CCF 2026 管理员导入、匹配规则、JCR 手工指标和批量补全。
-8. [脚本说明](../scripts/README.md)：生产恢复脚本与测试专用资产。
+8. [AI 生成与 Word 模板](ai-word-templates.md)：内置模板、自定义 DOCX、授权来源和导出规则。
+9. [脚本说明](../scripts/README.md)：生产恢复脚本与测试专用资产。
 
 ## 文档用途
 
@@ -21,6 +22,7 @@
 | `access-control-and-file-encryption.md` | 教师/管理员/运维 | 职责范围、内部授权、访问审计、附件加密、OCR 临时明文边界和迁移 |
 | `system-backup-restore.md` | SUPER_ADMIN/恢复运维 | 导出、恢复助手、verify-only、离线恢复和回滚 |
 | `publication-venue-ranking.md` | 教师/SUPER_ADMIN | CCF 数据授权、管理员导入、期刊/会议匹配、JCR 手工填写和确认边界 |
+| `ai-word-templates.md` | 教师/运维 | 系统模板、自定义 DOCX、确认追加、测试生成、所有权和历史重放 |
 | `docker/README.md` | 开发与运维 | 五服务、volume、构建、重启、日志 |
 | `scripts/README.md` | 恢复演练人员 | 脚本参数、测试目录、隔离矩阵 |
 

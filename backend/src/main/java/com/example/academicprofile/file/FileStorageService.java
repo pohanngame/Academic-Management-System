@@ -2,6 +2,7 @@ package com.example.academicprofile.file;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.ByteArrayInputStream;
 import java.net.MalformedURLException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -45,6 +46,9 @@ import com.example.academicprofile.security.CurrentUser;
 import com.example.academicprofile.teacher.TeacherProfile;
 import com.example.academicprofile.teacher.TeacherProfileService;
 import com.example.academicprofile.word.WordTemplateService;
+import com.example.academicprofile.word.WordTemplateValidationCode;
+import com.example.academicprofile.word.WordTemplateValidationException;
+import com.example.academicprofile.word.WordTemplateValidationResult;
 
 @Service
 public class FileStorageService {
@@ -169,6 +173,51 @@ public class FileStorageService {
         validateBusinessOwnership(teacherId, businessType, businessId);
         validateFile(file, businessType);
 
+        return storeValidatedFile(teacherId, businessType, businessId, file, null);
+    }
+
+    @Transactional
+    public WordTemplateUploadResult uploadAiWordTemplate(
+            Long teacherId, MultipartFile file, boolean appendMissingPlaceholder) {
+        validateBusinessOwnership(teacherId, FileBusinessType.AI_WORD_TEMPLATE, null);
+        validateAiWordTemplateBasics(file);
+        WordTemplateValidationResult validation;
+        try (InputStream input = file.getInputStream()) {
+            validation = wordTemplateService.validate(input);
+        } catch (IOException ex) {
+            throw new WordTemplateValidationException(
+                    WordTemplateValidationCode.INVALID_DOCX,
+                    "无法读取 Word 模板",
+                    0);
+        }
+        if (validation.code() == WordTemplateValidationCode.PLACEHOLDER_MISSING
+                && !appendMissingPlaceholder) {
+            return new WordTemplateUploadResult(null, validation);
+        }
+        byte[] normalized = null;
+        if (validation.code() == WordTemplateValidationCode.PLACEHOLDER_MISSING) {
+            try (InputStream input = file.getInputStream()) {
+                normalized = wordTemplateService.appendPlaceholderAtEnd(input);
+                validation = wordTemplateService.validate(new ByteArrayInputStream(normalized));
+            } catch (IOException ex) {
+                throw new WordTemplateValidationException(
+                        WordTemplateValidationCode.INVALID_DOCX,
+                        "无法读取 Word 模板",
+                        0);
+            }
+        }
+        FileMetadata metadata = storeValidatedFile(
+                teacherId, FileBusinessType.AI_WORD_TEMPLATE, null, file, normalized);
+        return new WordTemplateUploadResult(metadata, validation);
+    }
+
+    private FileMetadata storeValidatedFile(
+            Long teacherId,
+            FileBusinessType businessType,
+            Long businessId,
+            MultipartFile file,
+            byte[] replacementContent) {
+
         String originalName = safeOriginalName(file.getOriginalFilename());
         String fileExt = extensionOf(originalName);
         boolean encrypted = businessType != FileBusinessType.AVATAR;
@@ -181,13 +230,19 @@ public class FileStorageService {
         try {
             Files.createDirectories(targetPath.getParent());
             if (encrypted) {
-                try (InputStream input = file.getInputStream()) {
+                try (InputStream input = replacementContent == null
+                        ? file.getInputStream()
+                        : new ByteArrayInputStream(replacementContent)) {
                     encryption = encryptedFiles.encrypt(input, partialPath, storedName);
                 }
                 restrictFile(partialPath);
                 atomicMove(partialPath, targetPath);
             } else {
-                file.transferTo(partialPath);
+                try (InputStream input = replacementContent == null
+                        ? file.getInputStream()
+                        : new ByteArrayInputStream(replacementContent)) {
+                    Files.copy(input, partialPath);
+                }
                 restrictFile(partialPath);
                 atomicMove(partialPath, targetPath);
             }
@@ -208,7 +263,7 @@ public class FileStorageService {
         metadata.setStoragePath(toStoragePath(relativePath));
         metadata.setFileExt(fileExt);
         metadata.setMimeType(file.getContentType());
-        metadata.setFileSize(file.getSize());
+        metadata.setFileSize(replacementContent == null ? file.getSize() : (long) replacementContent.length);
         metadata.setBusinessType(businessType.name());
         metadata.setBusinessId(businessId);
         metadata.setEncryptionVersion(encrypted ? EncryptedFileCodec.VERSION : null);
@@ -510,8 +565,45 @@ public class FileStorageService {
             try {
                 wordTemplateService.inspect(file.getInputStream());
             } catch (IOException ex) {
-                throw new BusinessException("Failed to read Word template upload");
+                throw new BusinessException("无法读取上传的 Word 模板");
             }
+        }
+    }
+
+    private void validateAiWordTemplateBasics(MultipartFile file) {
+        if (file == null || file.isEmpty()) {
+            throw new WordTemplateValidationException(
+                    WordTemplateValidationCode.INVALID_DOCX,
+                    "请选择有效的 DOCX 文件",
+                    0);
+        }
+        if (file.getSize() > properties.getMaxUploadSize().toBytes()) {
+            throw new WordTemplateValidationException(
+                    HttpStatus.PAYLOAD_TOO_LARGE,
+                    WordTemplateValidationCode.FILE_TOO_LARGE,
+                    "Word 模板超过允许的上传大小",
+                    0);
+        }
+        String originalName;
+        String extension;
+        try {
+            originalName = safeOriginalName(file.getOriginalFilename());
+            extension = extensionOf(originalName);
+        } catch (BusinessException ex) {
+            throw new WordTemplateValidationException(
+                    WordTemplateValidationCode.UNSUPPORTED_FILE_TYPE,
+                    "仅支持文件名安全的 DOCX 模板",
+                    0);
+        }
+        String contentType = file.getContentType();
+        if (!"docx".equals(extension)
+                || !StringUtils.hasText(contentType)
+                || !AI_WORD_TEMPLATE_ALLOWED_MIME_TYPES.get("docx")
+                        .contains(contentType.toLowerCase(Locale.ROOT))) {
+            throw new WordTemplateValidationException(
+                    WordTemplateValidationCode.UNSUPPORTED_FILE_TYPE,
+                    "仅支持 DOCX 文件，不支持 DOC、DOCM、RTF 或 HTML",
+                    0);
         }
     }
 

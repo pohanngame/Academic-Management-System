@@ -128,6 +128,7 @@ class AiGenerationServiceTest {
         assertFalse(prompt.contains(WordTemplateService.PLACEHOLDER));
         assertFalse(prompt.contains("补充要求："));
         assertEquals("", savedTask.get().getTemplateRequirement());
+        assertEquals("CUSTOM", savedTask.get().getTemplateType());
         assertEquals("local-mock-1", savedTask.get().getProvider());
         assertEquals("mock-model-1", savedTask.get().getModelName());
         assertEquals("local-mock-1", runtime.providerName());
@@ -291,6 +292,27 @@ class AiGenerationServiceTest {
             String text = document.getParagraphs().stream().map(paragraph -> paragraph.getText()).reduce("", String::concat);
             assertTrue(text.contains("AI 生成材料"));
             assertTrue(text.contains("确认后的本地 mock 内容"));
+        }
+        verify(fileStorageService, never()).readReferencedAiWordTemplate(any(), any());
+    }
+
+    @Test
+    void historicalBuiltInTemplateTypeControlsReExport() throws IOException {
+        AiGenerationTask task = confirmedTask(1L, null);
+        task.setTemplateType("TEACHER_ACHIEVEMENT");
+        AiGenerationResult result = confirmedResult(1L);
+        when(taskMapper.selectById(100L)).thenReturn(task);
+        when(resultMapper.selectOne(any())).thenReturn(result);
+
+        AiGeneratedFile file = service.exportWord(1L, 100L);
+
+        try (XWPFDocument document = new XWPFDocument(new ByteArrayInputStream(file.content()))) {
+            String text = document.getParagraphs().stream()
+                    .map(paragraph -> paragraph.getText())
+                    .reduce("", String::concat);
+            assertTrue(text.contains("教师成果汇总"));
+            assertTrue(text.contains("确认后的本地 mock 内容"));
+            assertFalse(text.contains(WordTemplateService.PLACEHOLDER));
         }
         verify(fileStorageService, never()).readReferencedAiWordTemplate(any(), any());
     }

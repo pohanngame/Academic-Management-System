@@ -130,9 +130,34 @@ class AiChatClientLocalMockTest {
                 BusinessException.class,
                 () -> client(5, 5).generate("生成正式内容", runtimeConfig("model", "generation-test-key")));
 
-        assertEquals("AI 服务返回了无效响应", exception.getMessage());
+        assertEquals(
+                "AI 模型未返回正文，可能是思考模型耗尽输出额度。请改用非思考模型或联系管理员提高输出上限",
+                exception.getMessage());
         assertFalse(exception.getMessage().contains("generation-test-key"));
         assertFalse(exception.getMessage().contains("正在分析"));
+    }
+
+    @Test
+    void officialDeepSeekV4GenerationUsesNonThinkingMode() {
+        AiRuntimeConfig officialDeepSeek = new AiRuntimeConfig(
+                "deepseek",
+                "https://api.deepseek.com",
+                "deepseek-v4-flash",
+                "test-key");
+        AiRuntimeConfig compatibleProvider = new AiRuntimeConfig(
+                "compatible",
+                "https://example.com/v1",
+                "deepseek-v4-flash",
+                "test-key");
+
+        assertTrue(AiChatClient.shouldDisableThinking(officialDeepSeek));
+        assertFalse(AiChatClient.shouldDisableThinking(compatibleProvider));
+        assertEquals(
+                "disabled",
+                ((java.util.Map<?, ?>) AiChatClient.requestPayload("prompt", officialDeepSeek, 4096)
+                        .get("thinking")).get("type"));
+        assertFalse(AiChatClient.requestPayload("prompt", compatibleProvider, 4096)
+                .containsKey("thinking"));
     }
 
     @Test

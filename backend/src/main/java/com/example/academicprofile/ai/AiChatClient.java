@@ -3,8 +3,11 @@ package com.example.academicprofile.ai;
 import java.io.IOException;
 import java.io.InterruptedIOException;
 import java.net.SocketTimeoutException;
+import java.net.URI;
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import org.springframework.http.HttpStatus;
@@ -78,13 +81,7 @@ public class AiChatClient {
                     .writeTimeout(Duration.ofSeconds(properties.getTimeoutSeconds()))
                     .callTimeout(Duration.ofSeconds(properties.getTimeoutSeconds()))
                     .build();
-            Map<String, Object> payload = Map.of(
-                    "model", runtimeConfig.modelName(),
-                    "max_tokens", maxTokens,
-                    "temperature", 0.3,
-                    "messages", List.of(
-                            Map.of("role", "system", "content", SYSTEM_PROMPT),
-                            Map.of("role", "user", "content", prompt)));
+            Map<String, Object> payload = requestPayload(prompt, runtimeConfig, maxTokens);
             Request request = new Request.Builder()
                     .url(requestUrl)
                     .header("Authorization", "Bearer " + runtimeConfig.apiKey())
@@ -108,6 +105,38 @@ public class AiChatClient {
         }
     }
 
+    static Map<String, Object> requestPayload(
+            String prompt,
+            AiRuntimeConfig runtimeConfig,
+            int maxTokens) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("model", runtimeConfig.modelName());
+        payload.put("max_tokens", maxTokens);
+        payload.put("temperature", 0.3);
+        payload.put("messages", List.of(
+                Map.of("role", "system", "content", SYSTEM_PROMPT),
+                Map.of("role", "user", "content", prompt)));
+        if (shouldDisableThinking(runtimeConfig)) {
+            payload.put("thinking", Map.of("type", "disabled"));
+        }
+        return payload;
+    }
+
+    static boolean shouldDisableThinking(AiRuntimeConfig runtimeConfig) {
+        if (runtimeConfig == null || !StringUtils.hasText(runtimeConfig.baseUrl())
+                || !StringUtils.hasText(runtimeConfig.modelName())) {
+            return false;
+        }
+        try {
+            String host = URI.create(runtimeConfig.baseUrl()).getHost();
+            String model = runtimeConfig.modelName().trim().toLowerCase(Locale.ROOT);
+            return "api.deepseek.com".equalsIgnoreCase(host)
+                    && ("deepseek-v4-flash".equals(model) || "deepseek-v4-pro".equals(model));
+        } catch (IllegalArgumentException ex) {
+            return false;
+        }
+    }
+
     private JsonNode parseResponse(String responseBody) {
         try {
             JsonNode root = objectMapper.readTree(responseBody);
@@ -128,7 +157,9 @@ public class AiChatClient {
         JsonNode contentNode = extractMessage(root).get("content");
         String content = contentNode == null || contentNode.isNull() ? null : contentNode.asText();
         if (!StringUtils.hasText(content)) {
-            throw invalidResponse();
+            throw new BusinessException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "AI 模型未返回正文，可能是思考模型耗尽输出额度。请改用非思考模型或联系管理员提高输出上限");
         }
         return content.trim();
     }

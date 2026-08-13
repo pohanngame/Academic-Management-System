@@ -16,6 +16,7 @@ import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.argThat;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -50,6 +51,7 @@ import com.example.academicprofile.file.FileMetadata;
 import com.example.academicprofile.file.FileStorageService;
 import com.example.academicprofile.security.CurrentUser;
 import com.example.academicprofile.security.JwtService;
+import com.example.academicprofile.word.WordTemplateServiceTest;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -227,6 +229,121 @@ class CrossTeacherAttachmentAccessIntegrationTest {
         mvc.perform(get("/api/files/{id}/download", secondFileId)
                         .header("Authorization", bearer(requesterUserId, requesterTeacherId, "TEACHER")))
                 .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void aiSourceTeachersAlwaysContainsSelfAndExcludesOwnerWithoutAiUseGrant() throws Exception {
+        mvc.perform(get("/api/ai/source-teachers")
+                        .header("Authorization", bearer(requesterUserId, requesterTeacherId, "TEACHER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[0].teacherId").value(requesterTeacherId))
+                .andExpect(jsonPath("$.data[0].self").value(true))
+                .andExpect(jsonPath("$.data[?(@.teacherId == " + ownerTeacherId + ")]").isEmpty());
+
+        jdbc.update("UPDATE resource_access_policy SET ai_use_allowed = 1 WHERE resource_type = 'PAPER' AND resource_id = ?", paperId);
+        Long grantId = grant("AI_USE", "PAPER", paperId, LocalDateTime.now().minusMinutes(1), LocalDateTime.now().plusDays(1));
+        mvc.perform(get("/api/ai/source-teachers")
+                        .header("Authorization", bearer(requesterUserId, requesterTeacherId, "TEACHER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[1].teacherId").value(ownerTeacherId))
+                .andExpect(jsonPath("$.data[1].availableResourceCount").value(1))
+                .andExpect(jsonPath("$.data[1].availableAttachmentCount").value(0))
+                .andExpect(jsonPath("$.data[1].storagePath").doesNotExist())
+                .andExpect(jsonPath("$.data[1].grantId").doesNotExist());
+
+        jdbc.update("UPDATE resource_access_grant SET revoked_at = CURRENT_TIMESTAMP WHERE id = ?", grantId);
+        mvc.perform(get("/api/ai/source-teachers")
+                        .header("Authorization", bearer(requesterUserId, requesterTeacherId, "TEACHER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[?(@.teacherId == " + ownerTeacherId + ")]").isEmpty());
+
+        insertConfirmedOcr(firstFileId, "confirmed AI attachment text");
+        grantId = grant("AI_USE", "FILE_ATTACHMENT", firstFileId,
+                LocalDateTime.now().minusMinutes(1), LocalDateTime.now().plusDays(1));
+        mvc.perform(get("/api/ai/source-teachers")
+                        .header("Authorization", bearer(requesterUserId, requesterTeacherId, "TEACHER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[1].teacherId").value(ownerTeacherId))
+                .andExpect(jsonPath("$.data[1].availableAttachmentCount").value(1));
+
+        jdbc.update("UPDATE resource_access_policy SET ai_use_allowed = 0 WHERE resource_type = 'FILE_ATTACHMENT' AND resource_id = ?", firstFileId);
+        mvc.perform(get("/api/ai/source-teachers")
+                        .header("Authorization", bearer(requesterUserId, requesterTeacherId, "TEACHER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[?(@.teacherId == " + ownerTeacherId + ")]").isEmpty());
+        jdbc.update("UPDATE resource_access_policy SET ai_use_allowed = 1 WHERE resource_type = 'FILE_ATTACHMENT' AND resource_id = ?", firstFileId);
+        jdbc.update("UPDATE `user` SET status = 'DISABLED' WHERE id = ?", ownerUserId);
+        mvc.perform(get("/api/ai/source-teachers")
+                        .header("Authorization", bearer(requesterUserId, requesterTeacherId, "TEACHER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data[?(@.teacherId == " + ownerTeacherId + ")]").isEmpty());
+        jdbc.update("UPDATE `user` SET status = 'ACTIVE' WHERE id = ?", ownerUserId);
+
+        mvc.perform(get("/api/ai/source-teachers")
+                        .header("Authorization", bearer(adminUserId, adminTeacherId, "SUPER_ADMIN")))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void aiTaskUsesOnlyExplicitlyGrantedPaperFromSelectedTeacher() throws Exception {
+        jdbc.update("UPDATE paper SET title = 'Granted synthetic paper' WHERE id = ?", paperId);
+        jdbc.update("UPDATE resource_access_policy SET ai_use_allowed = 1 WHERE resource_type = 'PAPER' AND resource_id = ?", paperId);
+        grant("AI_USE", "PAPER", paperId, LocalDateTime.now().minusMinutes(1), LocalDateTime.now().plusDays(1));
+        jdbc.update("INSERT INTO paper (teacher_id, title) VALUES (?, 'Denied synthetic paper')", ownerTeacherId);
+        Long deniedPaperId = jdbc.queryForObject("SELECT MAX(id) FROM paper WHERE teacher_id = ?", Long.class, ownerTeacherId);
+        jdbc.update("""
+                INSERT INTO resource_access_policy
+                    (owner_teacher_id, resource_type, resource_id, view_allowed, download_allowed, ai_use_allowed)
+                VALUES (?, 'PAPER', ?, 1, 0, 1)
+                """, ownerTeacherId, deniedPaperId);
+        clearInvocations(aiChatClient);
+
+        mvc.perform(post("/api/ai/tasks")
+                        .header("Authorization", bearer(requesterUserId, requesterTeacherId, "TEACHER"))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"templateRequirement":"生成测试材料","selectedModules":["papers"],
+                                 "sourceTeacherIds":[%d],"outputMode":"AI_DRAFT","templateType":"SYSTEM_GENERAL"}
+                                """.formatted(ownerTeacherId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.data.status").value("SUCCEEDED"));
+        verify(aiChatClient).generate(
+                argThat(prompt -> prompt.contains("Granted synthetic paper")
+                        && !prompt.contains("Denied synthetic paper")),
+                any(AiRuntimeConfig.class));
+        Long usedCount = jdbc.queryForObject("""
+                SELECT COUNT(*) FROM resource_access_audit
+                WHERE actor_teacher_id = ? AND owner_teacher_id = ? AND operation_type = 'AI_USE'
+                  AND resource_type = 'PAPER' AND success = 1
+                """, Long.class, requesterTeacherId, ownerTeacherId);
+        org.assertj.core.api.Assertions.assertThat(usedCount).isEqualTo(1L);
+    }
+
+    @Test
+    void wordTemplateTestEndpointEnforcesTeacherRoleAndTemplateOwnership() throws Exception {
+        MockMultipartFile template = new MockMultipartFile(
+                "file",
+                "private-template.docx",
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                WordTemplateServiceTest.documentWithSplitPlaceholder(false));
+        FileMetadata saved = files.uploadFile(
+                ownerTeacherId, FileBusinessType.AI_WORD_TEMPLATE, null, template);
+
+        mvc.perform(get("/api/ai/templates/example")
+                        .header("Authorization", bearer(adminUserId, adminTeacherId, "SUPER_ADMIN")))
+                .andExpect(status().isForbidden());
+        mvc.perform(get("/api/ai/templates/test")
+                        .param("templateType", "CUSTOM")
+                        .param("templateFileId", saved.getId().toString())
+                        .header("Authorization", bearer(requesterUserId, requesterTeacherId, "TEACHER")))
+                .andExpect(status().isNotFound());
+        mvc.perform(get("/api/ai/templates/test")
+                        .param("templateType", "CUSTOM")
+                        .param("templateFileId", saved.getId().toString())
+                        .header("Authorization", bearer(ownerUserId, ownerTeacherId, "TEACHER")))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"));
     }
 
     @Test
@@ -847,6 +964,25 @@ class CrossTeacherAttachmentAccessIntegrationTest {
                         'Synthetic integration test', ?, ?)
                 """, requestId, requesterTeacherId, ownerTeacherId, fileId,
                 now.minusMinutes(1), now.plusDays(1));
+    }
+
+    private Long grant(String permission, String resourceType, Long resourceId,
+            LocalDateTime effectiveAt, LocalDateTime expiresAt) {
+        jdbc.update("""
+                INSERT INTO resource_access_request
+                    (requester_teacher_id, owner_teacher_id, resource_type,
+                     permission_type, purpose, status, requested_expires_at, decided_at)
+                VALUES (?, ?, ?, ?, 'Synthetic AI source test', 'APPROVED', ?, CURRENT_TIMESTAMP)
+                """, requesterTeacherId, ownerTeacherId, resourceType, permission, expiresAt);
+        Long requestId = jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
+        jdbc.update("""
+                INSERT INTO resource_access_grant
+                    (request_id, requester_teacher_id, owner_teacher_id, permission_type,
+                     resource_type, resource_id, purpose, effective_at, expires_at)
+                VALUES (?, ?, ?, ?, ?, ?, 'Synthetic AI source test', ?, ?)
+                """, requestId, requesterTeacherId, ownerTeacherId, permission,
+                resourceType, resourceId, effectiveAt, expiresAt);
+        return jdbc.queryForObject("SELECT LAST_INSERT_ID()", Long.class);
     }
 
     private void clearWorkflow() {

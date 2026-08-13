@@ -32,6 +32,8 @@ import com.example.academicprofile.teacher.TeacherProfile;
 import com.example.academicprofile.teacher.TeacherProfileService;
 import com.example.academicprofile.word.WordTemplateService;
 import com.example.academicprofile.word.WordTemplateServiceTest;
+import com.example.academicprofile.word.WordTemplateValidationCode;
+import com.example.academicprofile.word.WordTemplateValidationException;
 
 class FileStorageServiceTest {
 
@@ -45,13 +47,14 @@ class FileStorageServiceTest {
     private PaperMapper paperMapper;
     private EncryptedFileCodec encryptedFiles;
     private FileStorageService service;
+    private FileStorageProperties properties;
 
     @BeforeEach
     void setUp() {
         fileMetadataMapper = mock(FileMetadataMapper.class);
         teacherProfileService = mock(TeacherProfileService.class);
         paperMapper = mock(PaperMapper.class);
-        FileStorageProperties properties = new FileStorageProperties();
+        properties = new FileStorageProperties();
         properties.setUploadDir(tempDir.toString());
         properties.setTempDir(tempDir.resolve("runtime").toString());
         properties.setEncryptionKeyFile(tempDir.resolve("secrets/file-encryption.key").toString());
@@ -102,7 +105,7 @@ class FileStorageServiceTest {
     }
 
     @Test
-    void invalidTemplateLeavesNoFileOrMetadata() throws IOException {
+    void missingPlaceholderIsReportedWithoutSaving() throws IOException {
         byte[] invalidDocx;
         try (org.apache.poi.xwpf.usermodel.XWPFDocument document = new org.apache.poi.xwpf.usermodel.XWPFDocument();
                 java.io.ByteArrayOutputStream output = new java.io.ByteArrayOutputStream()) {
@@ -112,12 +115,53 @@ class FileStorageServiceTest {
         }
         MockMultipartFile file = new MockMultipartFile("file", "invalid.docx", DOCX_MIME, invalidDocx);
 
-        assertThrows(
-                BusinessException.class,
-                () -> service.uploadFile(1L, FileBusinessType.AI_WORD_TEMPLATE, null, file));
+        WordTemplateUploadResult result = service.uploadAiWordTemplate(1L, file, false);
 
+        assertEquals(WordTemplateValidationCode.PLACEHOLDER_MISSING, result.validation().code());
+        assertEquals(null, result.metadata());
         verify(fileMetadataMapper, never()).insert(any(FileMetadata.class));
         assertEquals(0, regularFileCount());
+    }
+
+    @Test
+    void confirmedMissingPlaceholderIsNormalizedThenSaved() throws IOException {
+        byte[] withoutPlaceholder;
+        try (org.apache.poi.xwpf.usermodel.XWPFDocument document = new org.apache.poi.xwpf.usermodel.XWPFDocument();
+                java.io.ByteArrayOutputStream output = new java.io.ByteArrayOutputStream()) {
+            document.createParagraph().createRun().setText("普通模板固定文字");
+            document.write(output);
+            withoutPlaceholder = output.toByteArray();
+        }
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "ordinary.docx", DOCX_MIME, withoutPlaceholder);
+
+        WordTemplateUploadResult result = service.uploadAiWordTemplate(1L, file, true);
+
+        assertTrue(result.validation().valid());
+        assertTrue(result.validation().autoAppended());
+        assertEquals("文档末尾", result.validation().insertionLocation());
+        verify(fileMetadataMapper).insert(any(FileMetadata.class));
+        assertTrue(Files.isRegularFile(tempDir.resolve(result.metadata().getStoragePath())));
+    }
+
+    @Test
+    void wordTemplateRejectsUnsupportedExtensionAndConfiguredSizeLimitBeforePersistence() {
+        MockMultipartFile disguised = new MockMultipartFile(
+                "file", "legacy.doc", DOCX_MIME, new byte[] {1, 2, 3});
+        properties.setMaxUploadSize(org.springframework.util.unit.DataSize.ofBytes(4));
+        MockMultipartFile oversized = new MockMultipartFile(
+                "file", "large.docx", DOCX_MIME, new byte[] {1, 2, 3, 4, 5});
+
+        WordTemplateValidationException unsupported = assertThrows(
+                WordTemplateValidationException.class,
+                () -> service.uploadAiWordTemplate(1L, disguised, false));
+        WordTemplateValidationException tooLarge = assertThrows(
+                WordTemplateValidationException.class,
+                () -> service.uploadAiWordTemplate(1L, oversized, false));
+
+        assertEquals(WordTemplateValidationCode.UNSUPPORTED_FILE_TYPE, unsupported.code());
+        assertEquals(WordTemplateValidationCode.FILE_TOO_LARGE, tooLarge.code());
+        verify(fileMetadataMapper, never()).insert(any(FileMetadata.class));
     }
 
     @Test

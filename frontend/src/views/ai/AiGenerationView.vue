@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useRouter } from 'vue-router'
 
@@ -7,30 +7,50 @@ import {
   confirmAiTask,
   createAiTask,
   deleteAiTask,
+  downloadAiWordTemplateExample,
+  downloadAiWordTemplateTest,
   downloadAiPdf,
   downloadAiWord,
   getAiModules,
+  getAiSourceTeachers,
   getAiTask,
   listAiTasks,
-  updateAiResult
+  updateAiResult,
+  uploadAiWordTemplate
 } from '../../services/aiGeneration'
 import { getAiSettings } from '../../services/aiSettings'
-import { getAiEligibleAttachments, getAllTeacherDirectory } from '../../services/access'
+import { getAiEligibleAttachments } from '../../services/access'
 import {
   allowedWordTemplateAccept,
   deleteFile,
   downloadFile,
-  listFiles,
-  uploadFile
+  listFiles
 } from '../../services/files'
+import {
+  afterDeletingTemplate,
+  downloadErrorMessage,
+  runCustomTemplateUpload,
+  taskWordTemplateLabel,
+  templateValidationMessage
+} from './aiWordTemplateRules'
+import {
+  canSelectAllSources,
+  normalizeSourceTeacherSelection,
+  reconcileSourceTeacherSelection,
+  selectAllSourceIds,
+  sourceTeacherOptionLabel
+} from './aiSourceTeacherRules'
 
 const loading = ref(false)
 const aiConfigured = ref(false)
 const generating = ref(false)
 const savingDraft = ref(false)
 const confirming = ref(false)
+const wordExporting = ref(false)
 const pdfExporting = ref(false)
 const templateUploading = ref(false)
+const templateTesting = ref(false)
+const templateValidation = ref(null)
 const modules = ref([])
 const tasks = ref([])
 const wordTemplates = ref([])
@@ -41,6 +61,7 @@ const editedContent = ref('')
 const router = useRouter()
 
 const form = reactive({
+  templateType: 'SYSTEM_GENERAL',
   templateFileId: null,
   templateRequirement: '',
   selectedModules: ['teacherProfile', 'papers', 'projects'],
@@ -69,7 +90,9 @@ const fieldOptions = {
 const currentResult = computed(() => currentTask.value?.result || null)
 const canEdit = computed(() => currentResult.value?.status === 'DRAFT')
 const canExport = computed(() => currentResult.value?.status === 'CONFIRMED')
-const requirementLabel = computed(() => form.templateFileId ? '补充生成要求（可选）' : '文字生成要求')
+const requirementLabel = computed(() => form.templateType === 'CUSTOM' ? '补充生成要求（可选）' : '本次生成要求')
+const selfSourceTeacherId = computed(() => sourceTeachers.value.find((teacher) => teacher.self)?.teacherId ?? null)
+const canSelectAllSourceTeachers = computed(() => canSelectAllSources(sourceTeachers.value))
 
 async function loadPage() {
   loading.value = true
@@ -79,7 +102,7 @@ async function loadPage() {
       listAiTasks(),
       listFiles('AI_WORD_TEMPLATE'),
       getAiSettings(),
-      getAllTeacherDirectory(),
+      getAiSourceTeachers(),
       getAiEligibleAttachments()
     ])
     modules.value = moduleList
@@ -87,6 +110,7 @@ async function loadPage() {
     wordTemplates.value = templateList
     aiConfigured.value = settings.configured
     sourceTeachers.value = directory
+    form.sourceTeacherIds = reconcileSourceTeacherSelection(form.sourceTeacherIds, directory)
     aiAttachments.value = attachments
   } catch (error) {
     ElMessage.error(error.response?.data?.message || '加载 AI 生成页面失败')
@@ -105,8 +129,12 @@ async function submitTask() {
     router.push('/dashboard/ai-settings')
     return
   }
-  if (!form.templateFileId && !form.templateRequirement.trim()) {
-    ElMessage.warning('未选择 Word 模板时，请输入文字生成要求')
+  if (form.templateType !== 'CUSTOM' && !form.templateRequirement.trim()) {
+    ElMessage.warning('使用系统模板时，请填写本次生成要求')
+    return
+  }
+  if (form.templateType === 'CUSTOM' && !form.templateFileId) {
+    ElMessage.warning('请选择或上传一个自定义 Word 模板')
     return
   }
   if (!form.selectedModules.length) {
@@ -116,10 +144,11 @@ async function submitTask() {
   generating.value = true
   try {
     const task = await createAiTask({
-      templateFileId: form.templateFileId,
+      templateType: form.templateType,
+      templateFileId: form.templateType === 'CUSTOM' ? form.templateFileId : null,
       templateRequirement: form.templateRequirement,
       selectedModules: form.selectedModules,
-      sourceTeacherIds: form.sourceTeacherIds,
+      sourceTeacherIds: normalizeSourceTeacherSelection(form.sourceTeacherIds, selfSourceTeacherId.value),
       startYear: form.startYear,
       endYear: form.endYear,
       competitionCategories: form.competitionCategories,
@@ -142,18 +171,112 @@ async function submitTask() {
 }
 
 async function uploadWordTemplate(options) {
+  if (templateUploading.value) {
+    return
+  }
   templateUploading.value = true
   try {
-    const uploaded = await uploadFile(options.file, 'AI_WORD_TEMPLATE')
-    options.onSuccess?.(uploaded)
+    const outcome = await runCustomTemplateUpload(
+      options.file,
+      uploadAiWordTemplate,
+      async () => {
+        try {
+          await ElMessageBox.confirm(
+            '未检测到正文插入位置。是否将 AI 生成内容自动添加到文档末尾？',
+            '确认模板插入位置',
+            {
+              confirmButtonText: '添加到文末并上传',
+              cancelButtonText: '返回修改模板',
+              type: 'warning'
+            }
+          )
+          return true
+        } catch {
+          return false
+        }
+      }
+    )
+    const response = outcome.response
+    templateValidation.value = response.validation
+    if (outcome.cancelled) {
+      ElMessage.info('未保存模板，可修改后重新上传')
+      return
+    }
+    if (!response.file) {
+      return
+    }
+    options.onSuccess?.(response.file)
     wordTemplates.value = await listFiles('AI_WORD_TEMPLATE')
-    form.templateFileId = uploaded.id
-    ElMessage.success('Word 模板已上传并选中')
+    form.templateType = 'CUSTOM'
+    form.templateFileId = response.file.id
+    ElMessage.success(response.validation?.autoAppended
+      ? '模板已添加正文位置、验证并上传'
+      : 'Word 模板已验证、上传并选中')
   } catch (error) {
-    options.onError?.(error)
-    ElMessage.error(error.response?.data?.message || 'Word 模板上传失败')
+    if (error !== 'cancel') {
+      options.onError?.(error)
+      const validation = error.response?.data?.data
+      if (validation?.code) {
+        templateValidation.value = validation
+      }
+      ElMessage.error(templateValidationMessage(
+        validation?.code,
+        error.response?.data?.message || 'Word 模板上传失败'))
+    }
   } finally {
     templateUploading.value = false
+  }
+}
+
+async function refreshAuthorizedSources() {
+  const [directory, attachments] = await Promise.all([
+    getAiSourceTeachers(),
+    getAiEligibleAttachments()
+  ])
+  sourceTeachers.value = directory
+  form.sourceTeacherIds = reconcileSourceTeacherSelection(form.sourceTeacherIds, directory)
+  aiAttachments.value = attachments
+  const availableAttachmentIds = new Set(attachments.map((item) => item.id))
+  form.selectedAttachmentIds = form.selectedAttachmentIds.filter((id) => availableAttachmentIds.has(id))
+}
+
+function refreshSourcesOnFocus() {
+  refreshAuthorizedSources().catch(() => {})
+}
+
+async function downloadExampleTemplate() {
+  try {
+    await downloadAiWordTemplateExample()
+  } catch (error) {
+    ElMessage.error(error.response?.data?.message || '下载示例模板失败')
+  }
+}
+
+async function downloadTemplateTest(template = null) {
+  if (templateTesting.value) {
+    return
+  }
+  const templateType = template ? 'CUSTOM' : form.templateType
+  const templateFileId = template?.id || (templateType === 'CUSTOM' ? form.templateFileId : null)
+  if (templateType === 'CUSTOM' && !templateFileId) {
+    ElMessage.warning('请先选择一个自定义 Word 模板')
+    return
+  }
+  templateTesting.value = true
+  try {
+    await downloadAiWordTemplateTest(templateType, templateFileId)
+    ElMessage.success('测试效果已生成，不会产生 AI 调用费用')
+  } catch (error) {
+    ElMessage.error(error.response?.data?.message || '生成模板测试效果失败')
+  } finally {
+    templateTesting.value = false
+  }
+}
+
+function changeTemplateType() {
+  templateValidation.value = null
+  if (form.templateType !== 'CUSTOM') {
+    form.templateFileId = null
   }
 }
 
@@ -173,9 +296,9 @@ async function removeWordTemplate(file) {
       { type: 'warning' }
     )
     await deleteFile(file.id)
-    if (form.templateFileId === file.id) {
-      form.templateFileId = null
-    }
+    const next = afterDeletingTemplate(form, file.id)
+    form.templateType = next.templateType
+    form.templateFileId = next.templateFileId
     wordTemplates.value = await listFiles('AI_WORD_TEMPLATE')
     ElMessage.success('Word 模板已删除')
   } catch (error) {
@@ -243,37 +366,45 @@ async function confirmDraft() {
 }
 
 async function exportWord() {
+  if (wordExporting.value) {
+    return
+  }
+  wordExporting.value = true
   try {
     await downloadAiWord(currentTask.value)
     ElMessage.success('Word 已导出')
   } catch (error) {
-    ElMessage.error(error.response?.data?.message || '导出 Word 失败')
+    ElMessage.error(await downloadErrorMessage(error, '导出 Word 失败'))
+  } finally {
+    wordExporting.value = false
   }
 }
 
 async function exportPdf() {
+  if (pdfExporting.value) {
+    return
+  }
   pdfExporting.value = true
   try {
     await downloadAiPdf(currentTask.value)
     ElMessage.success('PDF 已导出')
   } catch (error) {
-    ElMessage.error(await pdfErrorMessage(error))
+    ElMessage.error(await downloadErrorMessage(error, '导出 PDF 失败'))
   } finally {
     pdfExporting.value = false
   }
 }
 
-async function pdfErrorMessage(error) {
-  const data = error.response?.data
-  if (data instanceof Blob) {
-    try {
-      const payload = JSON.parse(await data.text())
-      return payload.message || '导出 PDF 失败'
-    } catch {
-      return '导出 PDF 失败'
-    }
+function selectAllSourceTeachers() {
+  if (!canSelectAllSourceTeachers.value) {
+    ElMessage.warning('单次最多选择50人')
+    return
   }
-  return data?.message || '导出 PDF 失败'
+  form.sourceTeacherIds = selectAllSourceIds(sourceTeachers.value)
+}
+
+function clearSourceTeachers() {
+  form.sourceTeacherIds = []
 }
 
 async function removeTask(task) {
@@ -312,13 +443,14 @@ function moduleLabels(keys) {
 }
 
 function taskTemplateLabel(task) {
-  if (!task.templateFileId) {
-    return '无 Word 模板（文字要求模式）'
-  }
-  return `${task.templateFileName || `模板 #${task.templateFileId}`}${task.templateDeleted ? '（已删除）' : ''}`
+  return taskWordTemplateLabel(task)
 }
 
-onMounted(loadPage)
+onMounted(() => {
+  loadPage()
+  window.addEventListener('focus', refreshSourcesOnFocus)
+})
+onBeforeUnmount(() => window.removeEventListener('focus', refreshSourcesOnFocus))
 </script>
 
 <template>
@@ -359,20 +491,33 @@ onMounted(loadPage)
           type="info"
           show-icon
           :closable="false"
-        >
-          <template #title>
-            第一版只支持一个 <code v-text="'{{aiContent}}'" /> 占位符。请将它插入 Word 正文或普通表格单元格。
-          </template>
-          暂不支持页眉、页脚、文本框、批注、修订内容、复杂域、多占位符，也不会自动理解任意 Word 模板。
-        </el-alert>
+          title="推荐使用系统模板。上传自己的 DOCX 时，可指定正文位置；未指定时也可以确认后自动添加到文末。"
+        />
 
-        <el-form-item label="Word 模板（可选）">
-          <div class="template-selector">
-            <el-select
-              v-model="form.templateFileId"
-              clearable
-              placeholder="不选择时使用文字要求模式"
+        <el-form-item label="输出样式">
+          <div class="output-style-grid">
+            <el-radio-group v-model="form.templateType" @change="changeTemplateType">
+              <el-radio-button value="SYSTEM_GENERAL">系统通用模板（推荐）</el-radio-button>
+              <el-radio-button value="TEACHER_ACHIEVEMENT">教师成果汇总模板</el-radio-button>
+              <el-radio-button value="SIMPLE_REPORT">简洁报告模板</el-radio-button>
+              <el-radio-button value="CUSTOM">上传自己的 Word</el-radio-button>
+            </el-radio-group>
+            <el-button
+              v-if="form.templateType !== 'CUSTOM'"
+              :loading="templateTesting"
+              @click="downloadTemplateTest()"
             >
+              下载测试效果
+            </el-button>
+          </div>
+          <div class="form-hint">
+            系统模板无需上传文件；使用系统通用模板时，填写下方“本次生成要求”即可。
+          </div>
+        </el-form-item>
+
+        <div v-if="form.templateType === 'CUSTOM'" class="custom-template-panel">
+          <div class="template-selector">
+            <el-select v-model="form.templateFileId" clearable placeholder="选择已上传的模板">
               <el-option
                 v-for="template in wordTemplates"
                 :key="template.id"
@@ -384,10 +529,42 @@ onMounted(loadPage)
               :show-file-list="false"
               :http-request="uploadWordTemplate"
               :accept="allowedWordTemplateAccept"
+              :disabled="templateUploading"
             >
-              <el-button :loading="templateUploading">上传 DOCX 模板</el-button>
+              <el-button :loading="templateUploading">上传 DOCX</el-button>
             </el-upload>
+            <el-button @click="downloadExampleTemplate">下载示例模板</el-button>
+            <el-button
+              :disabled="!form.templateFileId"
+              :loading="templateTesting"
+              @click="downloadTemplateTest()"
+            >
+              下载测试效果
+            </el-button>
           </div>
+
+          <el-alert
+            v-if="templateValidation"
+            class="template-validation"
+            :type="templateValidation.code === 'VALID_EXACT_PLACEHOLDER' ? 'success' : 'warning'"
+            :closable="false"
+            show-icon
+          >
+            <template #title>{{ templateValidationMessage(templateValidation.code, templateValidation.message) }}</template>
+            文件格式：{{ templateValidation.code === 'VALID_EXACT_PLACEHOLDER' ? '正常' : '需要处理' }}；
+            有效占位符：{{ templateValidation.validPlaceholderCount }}；
+            插入位置：{{ templateValidation.insertionLocation }}；
+            {{ templateValidation.autoAppended ? '已由系统按确认追加' : '未自动修改' }}
+          </el-alert>
+
+          <el-collapse class="advanced-template-help">
+            <el-collapse-item title="高级模板说明" name="advanced">
+              精确插入时，请在正文或普通表格单元格中放置且只放置一个
+              <code v-text="'{{aiContent}}'" />。不支持页眉、页脚、文本框、批注、修订、内容控件、复杂域、
+              DOC、DOCM、RTF 或任意复杂 Word 模板；系统不会执行宏或访问外部资源。
+            </el-collapse-item>
+          </el-collapse>
+
           <div v-if="wordTemplates.length" class="template-list">
             <div v-for="template in wordTemplates" :key="template.id" class="template-item">
               <div>
@@ -395,19 +572,21 @@ onMounted(loadPage)
                 <span>{{ formatFileSize(template.fileSize) }} · {{ formatCreatedAt(template.createdAt) }}</span>
               </div>
               <div class="template-actions">
+                <el-button link type="primary" @click="form.templateFileId = template.id">选中</el-button>
+                <el-button link type="primary" :loading="templateTesting" @click="downloadTemplateTest(template)">测试</el-button>
                 <el-button link type="primary" @click="downloadWordTemplate(template)">下载</el-button>
                 <el-button link type="danger" @click="removeWordTemplate(template)">删除</el-button>
               </div>
             </div>
           </div>
-        </el-form-item>
+        </div>
 
         <el-form-item :label="requirementLabel">
           <el-input
             v-model="form.templateRequirement"
             type="textarea"
             :rows="7"
-            :placeholder="form.templateFileId
+            :placeholder="form.templateType === 'CUSTOM'
               ? '可补充语气、篇幅或重点要求；留空时按模板结构和教师资料生成。'
               : '例如：请生成一份项目申报用个人学术简介，突出研究方向、代表论文和科研项目。'"
           />
@@ -419,10 +598,19 @@ onMounted(loadPage)
             </el-checkbox>
           </el-checkbox-group>
         </el-form-item>
-        <el-form-item label="资料人员（留空表示本人）">
-          <el-select v-model="form.sourceTeacherIds" multiple filterable clearable placeholder="本人或已获得 AI_USE 授权的教师">
-            <el-option v-for="teacher in sourceTeachers" :key="teacher.teacherId" :label="`${teacher.displayName} · ${teacher.majorName || '未分配专业'}`" :value="teacher.teacherId" />
+        <el-form-item label="资料来源人员（留空表示仅使用本人）">
+          <el-select v-model="form.sourceTeacherIds" multiple :multiple-limit="50" filterable clearable placeholder="本人或已获得 AI_USE 授权的教师">
+            <el-option v-for="teacher in sourceTeachers" :key="teacher.teacherId" :label="sourceTeacherOptionLabel(teacher)" :value="teacher.teacherId" />
           </el-select>
+          <div class="source-actions">
+            <el-button link type="primary" :disabled="!canSelectAllSourceTeachers" @click="selectAllSourceTeachers">选择全部可用人员</el-button>
+            <el-button link @click="clearSourceTeachers">清空选择</el-button>
+            <span v-if="!canSelectAllSourceTeachers" class="form-hint">单次最多选择50人</span>
+          </div>
+          <div class="form-hint">
+            这里只显示本人和当前已向你授予 AI 使用权限的教师。选择教师不代表可以使用其全部资料，系统只会读取已获 AI_USE 授权且当前仍有效的具体资料。
+          </div>
+          <div v-if="sourceTeachers.length === 1" class="form-hint">当前没有其他可用的 AI_USE 授权人员。</div>
         </el-form-item>
         <el-form-item label="已授权附件文本（最多 20 个）">
           <el-select v-model="form.selectedAttachmentIds" multiple filterable clearable collapse-tags placeholder="仅使用明确选择且 OCR 已确认的附件">
@@ -495,7 +683,7 @@ onMounted(loadPage)
               <el-button type="primary" :disabled="!canEdit" :loading="confirming" @click="confirmDraft">
                 确认草稿
               </el-button>
-              <el-button :disabled="!canExport" @click="exportWord">导出 Word</el-button>
+              <el-button :disabled="!canExport" :loading="wordExporting" @click="exportWord">导出 Word</el-button>
               <el-button :disabled="!canExport" :loading="pdfExporting" @click="exportPdf">导出 PDF</el-button>
             </div>
           </div>
@@ -597,6 +785,32 @@ p {
   width: 100%;
 }
 
+.output-style-grid {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.output-style-grid .el-radio-group {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.custom-template-panel {
+  margin-bottom: 18px;
+  padding: 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: #ffffff;
+}
+
+.template-validation,
+.advanced-template-help {
+  margin-top: 12px;
+}
+
 .template-selector .el-select {
   flex: 1;
 }
@@ -687,6 +901,12 @@ p {
   }
 
   .template-selector {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .output-style-grid,
+  .output-style-grid .el-radio-group {
     align-items: stretch;
     flex-direction: column;
   }

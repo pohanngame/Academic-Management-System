@@ -1,6 +1,5 @@
 package com.example.academicprofile.ai;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.time.LocalDateTime;
@@ -10,10 +9,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import org.apache.poi.xwpf.usermodel.ParagraphAlignment;
-import org.apache.poi.xwpf.usermodel.XWPFDocument;
-import org.apache.poi.xwpf.usermodel.XWPFParagraph;
-import org.apache.poi.xwpf.usermodel.XWPFRun;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,6 +23,7 @@ import com.example.academicprofile.pdf.PdfConversionClient;
 import com.example.academicprofile.security.CurrentUser;
 import com.example.academicprofile.word.WordTemplateService;
 import com.example.academicprofile.word.WordTemplateService.WordTemplateInspection;
+import com.example.academicprofile.word.WordOutputTemplateType;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -41,7 +37,7 @@ public class AiGenerationService {
     private static final String STATUS_CONFIRMED = "CONFIRMED";
     private static final String RESULT_DRAFT = "DRAFT";
     private static final String RESULT_CONFIRMED = "CONFIRMED";
-    private static final String WORD_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    public static final String WORD_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
     private static final String PDF_CONTENT_TYPE = "application/pdf";
 
     private final AiGenerationTaskMapper taskMapper;
@@ -95,26 +91,37 @@ public class AiGenerationService {
         AiRuntimeConfig runtimeConfig = settingsService.requireRuntimeConfig(teacherId);
         List<String> modules = validateModules(request.selectedModules());
         String requirement = request.templateRequirement() == null ? "" : request.templateRequirement().trim();
+        WordOutputTemplateType templateType = WordOutputTemplateType.resolve(
+                request.templateType(), request.templateFileId());
         WordTemplateInspection templateInspection = null;
-        if (request.templateFileId() == null) {
-            if (!StringUtils.hasText(requirement)) {
-                throw new BusinessException("Text requirement is required when no Word template is selected");
+        if (templateType == WordOutputTemplateType.CUSTOM) {
+            if (request.templateFileId() == null) {
+                throw new BusinessException("请选择已上传的自定义 Word 模板");
             }
-        } else {
             FileDownload templateDownload = fileStorageService.readActiveAiWordTemplate(
                     teacherId,
                     request.templateFileId());
             templateInspection = inspectTemplate(templateDownload);
+        } else {
+            if (request.templateFileId() != null) {
+                throw new BusinessException("系统模板不能指定自定义文件");
+            }
+            if (!StringUtils.hasText(requirement)) {
+                throw new BusinessException("使用系统模板时，请填写本次生成要求");
+            }
         }
         AiDataCollector.CollectionResult collected = dataCollector.collect(actor, modules, request);
         Map<String, Object> data = collected.data();
-        String templateStructure = templateInspection == null ? null : templateInspection.structureText();
+        String templateStructure = templateInspection == null
+                ? wordTemplateService.structureFor(templateType)
+                : templateInspection.structureText();
         String prompt = buildPrompt(requirement, modules, data, templateStructure, request.outputMode());
         validatePromptLength(prompt);
 
         AiGenerationTask task = new AiGenerationTask();
         task.setTeacherId(teacherId);
         task.setTemplateFileId(request.templateFileId());
+        task.setTemplateType(templateType.name());
         task.setTemplateRequirement(requirement);
         task.setSelectedModules(toJson(modules));
         task.setSourceManifest(toJson(collected.sources().stream()
@@ -222,9 +229,11 @@ public class AiGenerationService {
         AiGenerationTask task = getOwnedTask(teacherId, taskId);
         AiGenerationResult result = findResult(task);
         if (result == null || !RESULT_CONFIRMED.equals(result.getStatus())) {
-            throw new BusinessException("Please confirm the AI draft before exporting Word or PDF");
+            throw new BusinessException("请先确认 AI 草稿，再导出 Word 或 PDF");
         }
-        if (task.getTemplateFileId() != null) {
+        WordOutputTemplateType templateType = WordOutputTemplateType.resolve(
+                task.getTemplateType(), task.getTemplateFileId());
+        if (templateType == WordOutputTemplateType.CUSTOM) {
             FileDownload templateDownload = fileStorageService.readReferencedAiWordTemplate(
                     teacherId,
                     task.getTemplateFileId());
@@ -234,18 +243,13 @@ public class AiGenerationService {
                         result.getConfirmedContent());
                 return content;
             } catch (IOException ex) {
-                throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to read Word template");
+                throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR, "无法读取历史任务使用的 Word 模板");
             }
         }
-        try (XWPFDocument document = new XWPFDocument(); ByteArrayOutputStream output = new ByteArrayOutputStream()) {
-            writeTitle(document, "AI 生成材料");
-            writeMetadata(document, task);
-            writeContent(document, result.getConfirmedContent());
-            document.write(output);
-            return output.toByteArray();
-        } catch (IOException ex) {
-            throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR, "Failed to generate Word file");
-        }
+        return wordTemplateService.renderBuiltIn(
+                templateType,
+                result.getConfirmedContent(),
+                task.getProvider() + " / " + task.getModelName());
     }
 
     private String buildPrompt(
@@ -380,35 +384,6 @@ public class AiGenerationService {
             });
         } catch (JsonProcessingException ex) {
             return List.of();
-        }
-    }
-
-    private void writeTitle(XWPFDocument document, String title) {
-        XWPFParagraph paragraph = document.createParagraph();
-        paragraph.setAlignment(ParagraphAlignment.CENTER);
-        XWPFRun run = paragraph.createRun();
-        run.setBold(true);
-        run.setFontSize(18);
-        run.setText(title);
-    }
-
-    private void writeMetadata(XWPFDocument document, AiGenerationTask task) {
-        XWPFParagraph paragraph = document.createParagraph();
-        XWPFRun run = paragraph.createRun();
-        run.setFontSize(10);
-        run.setColor("666666");
-        run.setText("生成模型：" + task.getProvider() + " / " + task.getModelName());
-    }
-
-    private void writeContent(XWPFDocument document, String content) {
-        for (String block : content.split("\\R{2,}")) {
-            XWPFParagraph paragraph = document.createParagraph();
-            for (String line : block.split("\\R")) {
-                XWPFRun run = paragraph.createRun();
-                run.setFontSize(11);
-                run.setText(line);
-                run.addBreak();
-            }
         }
     }
 
