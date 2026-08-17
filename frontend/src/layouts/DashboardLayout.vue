@@ -4,7 +4,9 @@ import {
   Collection,
   DataAnalysis,
   Download,
+  Expand,
   Files,
+  Fold,
   Notebook,
   OfficeBuilding,
   Reading,
@@ -13,18 +15,46 @@ import {
   SwitchButton,
   User
 } from '@element-plus/icons-vue'
-import { computed } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import { useAuthStore } from '../stores/auth'
 import { homeRouteForRole } from '../router/roleNavigation'
+import {
+  readSidebarCollapsed,
+  saveSidebarCollapsed,
+  sidebarWidth,
+  SIDEBAR_COLLAPSED_KEY
+} from './dashboardLayoutRules'
 
 const route = useRoute()
 const router = useRouter()
 const authStore = useAuthStore()
+const collapsed = ref(readSidebarCollapsed(localStorage.getItem(SIDEBAR_COLLAPSED_KEY)))
+const smallScreen = ref(false)
+let mediaQuery
 
 const activeMenu = computed(() => route.path)
 const homeRoute = computed(() => homeRouteForRole(authStore.user?.role))
+const menuCollapsed = computed(() => collapsed.value || smallScreen.value)
+const asideWidth = computed(() => sidebarWidth(menuCollapsed.value))
+
+function toggleSidebar() {
+  collapsed.value = !collapsed.value
+  saveSidebarCollapsed(collapsed.value)
+}
+
+function updateSmallScreen(event) {
+  smallScreen.value = event.matches
+}
+
+onMounted(() => {
+  mediaQuery = window.matchMedia('(max-width: 720px)')
+  updateSmallScreen(mediaQuery)
+  mediaQuery.addEventListener('change', updateSmallScreen)
+})
+
+onBeforeUnmount(() => mediaQuery?.removeEventListener('change', updateSmallScreen))
 
 function handleLogout() {
   authStore.logout()
@@ -34,9 +64,18 @@ function handleLogout() {
 
 <template>
   <el-container class="dashboard-layout">
-    <el-aside class="sidebar" width="248px">
-      <div class="brand">学术档案</div>
-      <el-menu router :default-active="activeMenu">
+    <el-aside class="sidebar" :class="{ 'is-collapsed': menuCollapsed }" :width="asideWidth">
+      <div class="sidebar-header">
+        <div class="brand" :title="menuCollapsed ? '学术档案' : undefined">
+          <span class="brand-mark">档</span>
+          <span v-show="!menuCollapsed" class="brand-text">学术档案</span>
+        </div>
+        <el-tooltip v-if="!smallScreen" :content="collapsed ? '展开菜单' : '收起菜单'" placement="right">
+          <el-button class="collapse-button" text :icon="collapsed ? Expand : Fold" :aria-label="collapsed ? '展开菜单' : '收起菜单'" @click="toggleSidebar" />
+        </el-tooltip>
+      </div>
+      <div class="sidebar-menu">
+      <el-menu router :default-active="activeMenu" :collapse="menuCollapsed" :collapse-transition="false">
         <el-menu-item :index="homeRoute">
           <el-icon><User /></el-icon>
           <span>{{ authStore.user?.role === 'SUPER_ADMIN' ? '管理首页' : '工作台' }}</span>
@@ -126,9 +165,10 @@ function handleLogout() {
           </el-menu-item>
         </el-menu-item-group>
       </el-menu>
+      </div>
     </el-aside>
 
-    <el-container>
+    <el-container class="main-shell">
       <el-header class="topbar">
         <div class="current-user">
           <strong>{{ authStore.user?.displayName || authStore.user?.username }}</strong>
@@ -145,24 +185,80 @@ function handleLogout() {
 
 <style scoped>
 .dashboard-layout {
-  min-height: 100vh;
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .sidebar {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
   background: #ffffff;
   border-right: 1px solid #e5e7eb;
+  transition: width 0.2s ease;
+}
+
+.sidebar-header {
+  height: 64px;
+  flex: 0 0 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px 0 16px;
 }
 
 .brand {
-  height: 64px;
+  min-width: 0;
   display: flex;
   align-items: center;
-  padding: 0 20px;
+  gap: 8px;
   font-size: 18px;
   font-weight: 700;
+  white-space: nowrap;
+}
+
+.brand-mark {
+  flex: 0 0 auto;
+}
+
+.collapse-button {
+  flex: 0 0 auto;
+}
+
+.sidebar.is-collapsed .sidebar-header {
+  padding: 0 4px 0 8px;
+}
+
+.sidebar-menu {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
+.sidebar-menu :deep(.el-menu) {
+  border-right: 0;
+}
+
+.sidebar.is-collapsed :deep(.el-menu-item-group__title) {
+  display: none;
+}
+
+.main-shell {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .topbar {
+  flex: 0 0 60px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -182,6 +278,34 @@ function handleLogout() {
 }
 
 .content {
+  min-width: 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
   background: #f5f7fb;
+}
+
+@media (max-width: 720px) {
+  .topbar {
+    padding: 0 12px;
+  }
+
+  .current-user {
+    min-width: 0;
+  }
+
+  .current-user strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .current-user span {
+    display: none;
+  }
+
+  .content {
+    padding: 12px;
+  }
 }
 </style>

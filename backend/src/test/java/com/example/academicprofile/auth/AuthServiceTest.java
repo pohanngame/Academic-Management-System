@@ -71,6 +71,32 @@ class AuthServiceTest {
     }
 
     @Test
+    void registrationRejectsMismatchedPasswords() {
+        assertThatThrownBy(() -> service.register(new RegisterRequest(
+                "teacher", "teacher@example.com", "password-123", "different-123",
+                "Teacher", null, null)))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Passwords do not match");
+    }
+
+    @Test
+    void registrationRejectsDuplicateUsernameAndEmail() {
+        RegisterRequest request = new RegisterRequest(
+                "teacher", "teacher@example.com", "password-123", "password-123",
+                "Teacher", null, null);
+        when(users.existsByUsername("teacher")).thenReturn(true);
+        assertThatThrownBy(() -> service.register(request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Username already exists");
+
+        when(users.existsByUsername("teacher")).thenReturn(false);
+        when(users.existsByEmail("teacher@example.com")).thenReturn(true);
+        assertThatThrownBy(() -> service.register(request))
+                .isInstanceOf(BusinessException.class)
+                .hasMessage("Email already exists");
+    }
+
+    @Test
     void disabledUserCannotLogin() {
         UserAccount user = user("DISABLED", "TEACHER");
         when(users.findByUsernameOrEmail("teacher")).thenReturn(Optional.of(user));
