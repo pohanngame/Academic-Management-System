@@ -54,6 +54,7 @@ public class AchievementService {
         Project item = new Project();
         item.setTeacherId(teacherId);
         applyProject(item, request);
+        item.setSortOrder(nextSortOrder(listProjects(teacherId), Project::getSortOrder));
         projectMapper.insert(item);
         resourcePolicies.createDefault(teacherId, ResourceType.PROJECT, item.getId());
         return item;
@@ -84,6 +85,7 @@ public class AchievementService {
         TeachingCourse item = new TeachingCourse();
         item.setTeacherId(teacherId);
         applyTeachingCourse(item, request);
+        item.setSortOrder(nextSortOrder(listTeachingCourses(teacherId), TeachingCourse::getSortOrder));
         teachingCourseMapper.insert(item);
         resourcePolicies.createDefault(teacherId, ResourceType.TEACHING_COURSE, item.getId());
         return item;
@@ -114,6 +116,7 @@ public class AchievementService {
         Paper item = new Paper();
         item.setTeacherId(teacherId);
         applyPaper(item, request);
+        item.setSortOrder(nextSortOrder(listPapers(teacherId), Paper::getSortOrder));
         paperMapper.insert(item);
         resourcePolicies.createDefault(teacherId, ResourceType.PAPER, item.getId());
         return item;
@@ -144,6 +147,7 @@ public class AchievementService {
         Patent item = new Patent();
         item.setTeacherId(teacherId);
         applyPatent(item, request);
+        item.setSortOrder(nextSortOrder(listPatents(teacherId), Patent::getSortOrder));
         patentMapper.insert(item);
         resourcePolicies.createDefault(teacherId, ResourceType.PATENT, item.getId());
         return item;
@@ -174,6 +178,7 @@ public class AchievementService {
         Certificate item = new Certificate();
         item.setTeacherId(teacherId);
         applyCertificate(item, request);
+        item.setSortOrder(nextSortOrder(listCertificates(teacherId), Certificate::getSortOrder));
         certificateMapper.insert(item);
         resourcePolicies.createDefault(teacherId, ResourceType.CERTIFICATE, item.getId());
         return item;
@@ -201,7 +206,6 @@ public class AchievementService {
         item.setFundingAmount(request.fundingAmount());
         item.setStatus(blankToNull(request.status()));
         item.setDescription(blankToNull(request.description()));
-        item.setSortOrder(defaultSortOrder(request.sortOrder()));
         item.setIsPublic(defaultPublic(request.isPublic()));
     }
 
@@ -212,7 +216,6 @@ public class AchievementService {
         item.setTeachingTarget(blankToNull(request.teachingTarget()));
         item.setHours(request.hours());
         item.setDescription(blankToNull(request.description()));
-        item.setSortOrder(defaultSortOrder(request.sortOrder()));
         item.setIsPublic(defaultPublic(request.isPublic()));
     }
 
@@ -231,7 +234,6 @@ public class AchievementService {
         item.setUrl(blankToNull(request.url()));
         item.setAbstractText(blankToNull(request.abstractText()));
         item.setKeywords(blankToNull(request.keywords()));
-        item.setSortOrder(defaultSortOrder(request.sortOrder()));
         item.setIsPublic(defaultPublic(request.isPublic()));
     }
 
@@ -244,7 +246,6 @@ public class AchievementService {
         item.setAuthorizationDate(request.authorizationDate());
         item.setInventors(blankToNull(request.inventors()));
         item.setDescription(blankToNull(request.description()));
-        item.setSortOrder(defaultSortOrder(request.sortOrder()));
         item.setIsPublic(defaultPublic(request.isPublic()));
     }
 
@@ -255,7 +256,6 @@ public class AchievementService {
         item.setIssuingAuthority(blankToNull(request.issuingAuthority()));
         item.setIssueDate(request.issueDate());
         item.setDescription(blankToNull(request.description()));
-        item.setSortOrder(defaultSortOrder(request.sortOrder()));
         item.setIsPublic(defaultPublic(request.isPublic()));
     }
 
@@ -272,8 +272,8 @@ public class AchievementService {
         mapper.deleteById(item);
     }
 
-    private Integer defaultSortOrder(Integer sortOrder) {
-        return sortOrder == null ? 0 : sortOrder;
+    private <T> int nextSortOrder(List<T> items, java.util.function.Function<T, Integer> reader) {
+        return items.stream().map(reader).filter(java.util.Objects::nonNull).max(Integer::compareTo).orElse(0) + 1;
     }
 
     private Boolean defaultPublic(Boolean isPublic) {

@@ -11,6 +11,7 @@ public class OcrProperties {
     private String baseUrl = "http://localhost:8866";
     private int timeoutSeconds = 60;
     private int minPdfTextLength = 80;
+    private int stagingTtlHours = 24;
 
     public boolean isEnabled() {
         return enabled;
@@ -43,4 +44,7 @@ public class OcrProperties {
     public void setMinPdfTextLength(int minPdfTextLength) {
         this.minPdfTextLength = minPdfTextLength;
     }
+
+    public int getStagingTtlHours() { return stagingTtlHours; }
+    public void setStagingTtlHours(int stagingTtlHours) { this.stagingTtlHours = stagingTtlHours; }
 }

@@ -9,6 +9,8 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.multipart.MultipartFile;
 
 import com.example.academicprofile.common.ApiResponse;
 import com.example.academicprofile.security.SecurityUtils;
@@ -27,6 +29,22 @@ public class OcrController {
     @PostMapping("/api/ocr/tasks")
     public ApiResponse<OcrTaskResponse> createTask(@Valid @RequestBody OcrTaskRequest request) {
         return ApiResponse.ok(ocrService.createTask(currentTeacherId(), request));
+    }
+
+    @PostMapping(value = "/api/ocr/certificates/quick", consumes = "multipart/form-data")
+    public ApiResponse<OcrTaskResponse> quickCertificate(@RequestParam("file") MultipartFile file) {
+        return ApiResponse.ok(ocrService.createCertificateQuickTask(currentTeacherId(), file));
+    }
+
+    @DeleteMapping("/api/ocr/tasks/{id}")
+    public ApiResponse<Void> cancelTask(@PathVariable Long id) {
+        ocrService.cancelTask(currentTeacherId(), id);
+        return ApiResponse.ok(null);
+    }
+
+    @PostMapping("/api/ocr/tasks/{id}/retry")
+    public ApiResponse<OcrTaskResponse> retryTask(@PathVariable Long id) {
+        return ApiResponse.ok(ocrService.retryTask(currentTeacherId(), id));
     }
 
     @GetMapping("/api/ocr/tasks")

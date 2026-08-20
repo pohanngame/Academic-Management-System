@@ -23,11 +23,35 @@ public class AchievementController {
 
     private final AchievementService achievementService;
     private final PublicationRatingBulkService publicationRatings;
+    private final AchievementMutationService mutations;
 
     public AchievementController(AchievementService achievementService,
-            PublicationRatingBulkService publicationRatings) {
+            PublicationRatingBulkService publicationRatings,
+            AchievementMutationService mutations) {
         this.achievementService = achievementService;
         this.publicationRatings = publicationRatings;
+        this.mutations = mutations;
+    }
+
+    @PostMapping("/achievements/{type}/reorder")
+    public ApiResponse<Void> reorder(@PathVariable String type,
+            @RequestBody AchievementBatchRequests.Reorder request) {
+        mutations.reorder(SecurityUtils.currentUser(), AchievementRecordType.fromPath(type), request.orderedIds());
+        return ApiResponse.ok(null);
+    }
+
+    @org.springframework.web.bind.annotation.PatchMapping("/achievements/{type}/batch")
+    public ApiResponse<Void> batchUpdate(@PathVariable String type,
+            @RequestBody AchievementBatchRequests.Update request) {
+        mutations.update(SecurityUtils.currentUser(), AchievementRecordType.fromPath(type), request);
+        return ApiResponse.ok(null);
+    }
+
+    @PostMapping("/achievements/{type}/batch-delete")
+    public ApiResponse<Void> batchDelete(@PathVariable String type,
+            @RequestBody AchievementBatchRequests.Delete request) {
+        mutations.delete(SecurityUtils.currentUser(), AchievementRecordType.fromPath(type), request.ids());
+        return ApiResponse.ok(null);
     }
 
     @GetMapping("/projects")
@@ -47,7 +71,7 @@ public class AchievementController {
 
     @DeleteMapping("/projects/{id}")
     public ApiResponse<Void> deleteProject(@PathVariable Long id) {
-        achievementService.deleteProject(currentTeacherId(), id);
+        mutations.delete(SecurityUtils.currentUser(), AchievementRecordType.PROJECTS, List.of(id));
         return ApiResponse.ok(null);
     }
 
@@ -70,7 +94,7 @@ public class AchievementController {
 
     @DeleteMapping("/teaching-courses/{id}")
     public ApiResponse<Void> deleteTeachingCourse(@PathVariable Long id) {
-        achievementService.deleteTeachingCourse(currentTeacherId(), id);
+        mutations.delete(SecurityUtils.currentUser(), AchievementRecordType.TEACHING_COURSES, List.of(id));
         return ApiResponse.ok(null);
     }
 
@@ -91,7 +115,7 @@ public class AchievementController {
 
     @DeleteMapping("/papers/{id}")
     public ApiResponse<Void> deletePaper(@PathVariable Long id) {
-        achievementService.deletePaper(currentTeacherId(), id);
+        mutations.delete(SecurityUtils.currentUser(), AchievementRecordType.PAPERS, List.of(id));
         return ApiResponse.ok(null);
     }
 
@@ -125,7 +149,7 @@ public class AchievementController {
 
     @DeleteMapping("/patents/{id}")
     public ApiResponse<Void> deletePatent(@PathVariable Long id) {
-        achievementService.deletePatent(currentTeacherId(), id);
+        mutations.delete(SecurityUtils.currentUser(), AchievementRecordType.PATENTS, List.of(id));
         return ApiResponse.ok(null);
     }
 
@@ -148,7 +172,7 @@ public class AchievementController {
 
     @DeleteMapping("/certificates/{id}")
     public ApiResponse<Void> deleteCertificate(@PathVariable Long id) {
-        achievementService.deleteCertificate(currentTeacherId(), id);
+        mutations.delete(SecurityUtils.currentUser(), AchievementRecordType.CERTIFICATES, List.of(id));
         return ApiResponse.ok(null);
     }
 

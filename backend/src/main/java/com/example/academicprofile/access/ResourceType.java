@@ -35,7 +35,8 @@ public enum ResourceType {
             case PAPER -> PAPER;
             case PATENT -> PATENT;
             case CERTIFICATE -> CERTIFICATE;
-            case AVATAR, AI_WORD_TEMPLATE -> throw new BusinessException("File is not a shared business attachment");
+            case AVATAR, AI_WORD_TEMPLATE, CERTIFICATE_OCR_STAGING ->
+                    throw new BusinessException("File is not a shared business attachment");
         };
     }
 }

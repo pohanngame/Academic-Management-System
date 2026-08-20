@@ -232,6 +232,25 @@ class CrossTeacherAttachmentAccessIntegrationTest {
     }
 
     @Test
+    void achievementBatchOfOneHundredOneIsRejectedWithoutAnyModification() throws Exception {
+        jdbc.update("UPDATE paper SET is_public=1 WHERE id=?", paperId);
+        List<Long> ids = java.util.stream.LongStream.rangeClosed(1, 101).boxed().toList();
+        ids = new java.util.ArrayList<>(ids);
+        ids.set(0, paperId);
+
+        mvc.perform(patch("/api/teacher/achievements/papers/batch")
+                        .header("Authorization", owner())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(json.writeValueAsBytes(java.util.Map.of(
+                                "ids", ids,
+                                "isPublic", false))))
+                .andExpect(status().isBadRequest());
+
+        org.assertj.core.api.Assertions.assertThat(jdbc.queryForObject(
+                "SELECT is_public FROM paper WHERE id=?", Boolean.class, paperId)).isTrue();
+    }
+
+    @Test
     void aiSourceTeachersAlwaysContainsSelfAndExcludesOwnerWithoutAiUseGrant() throws Exception {
         mvc.perform(get("/api/ai/source-teachers")
                         .header("Authorization", bearer(requesterUserId, requesterTeacherId, "TEACHER")))

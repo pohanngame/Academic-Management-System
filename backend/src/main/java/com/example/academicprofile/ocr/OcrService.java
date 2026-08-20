@@ -14,6 +14,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.scheduling.annotation.Scheduled;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.academicprofile.achievement.Certificate;
@@ -100,6 +102,12 @@ public class OcrService {
         return getTask(teacherId, task.getId());
     }
 
+    @Transactional
+    public OcrTaskResponse createCertificateQuickTask(Long teacherId, MultipartFile file) {
+        FileMetadata metadata = fileStorageService.uploadCertificateOcrStaging(teacherId, file);
+        return createTask(teacherId, new OcrTaskRequest(metadata.getId(), OcrTargetType.CERTIFICATE));
+    }
+
     public List<OcrTaskResponse> listTasks(Long teacherId) {
         return taskMapper.selectList(new LambdaQueryWrapper<OcrTask>()
                         .eq(OcrTask::getTeacherId, teacherId)
@@ -145,7 +153,11 @@ public class OcrService {
 
     @Transactional
     public OcrConfirmResponse confirmTask(Long teacherId, Long taskId, OcrConfirmRequest request) {
-        OcrTask task = getOwnedTask(teacherId, taskId);
+        OcrTask task = taskMapper.selectByIdForUpdate(taskId);
+        if (task == null || !teacherId.equals(task.getTeacherId())) {
+            throw new BusinessException(HttpStatus.NOT_FOUND, "OCR task not found");
+        }
+        if (STATUS_CONFIRMED.equals(task.getStatus())) return new OcrConfirmResponse(0, 0);
         Set<Long> selectedIds = request.resultIds() == null ? Set.of() : new HashSet<>(request.resultIds());
         List<OcrResult> results = listResults(teacherId, taskId).stream()
                 .filter(result -> selectedIds.isEmpty() || selectedIds.contains(result.getId()))
@@ -155,7 +167,7 @@ public class OcrService {
         int confirmed = 0;
         int skipped = 0;
         for (OcrResult result : results) {
-            Long createdId = createBusinessRecord(teacherId, result);
+            Long createdId = createBusinessRecord(teacherId, result, request.competitionCategory());
             if (createdId == null) {
                 skipped++;
                 continue;
@@ -163,12 +175,73 @@ public class OcrService {
             result.setCreatedRecordId(createdId);
             result.setStatus(RESULT_CONFIRMED);
             resultMapper.updateById(result);
+            if (OcrTargetType.CERTIFICATE.name().equals(task.getTargetType())) {
+                FileMetadata source = fileStorageService.getOwnedFileMetadata(teacherId, task.getFileId());
+                if (FileBusinessType.CERTIFICATE_OCR_STAGING.name().equals(source.getBusinessType())) {
+                    fileStorageService.attachCertificateOcrStaging(teacherId, task.getFileId(), createdId);
+                }
+            }
             confirmed++;
         }
         task.setStatus(confirmed > 0 ? STATUS_CONFIRMED : task.getStatus());
         taskMapper.updateById(task);
         refreshTaskResultCount(taskId, teacherId);
         return new OcrConfirmResponse(confirmed, skipped);
+    }
+
+    @Transactional
+    public void cancelTask(Long teacherId, Long taskId) {
+        OcrTask task = taskMapper.selectByIdForUpdate(taskId);
+        if (task == null || !teacherId.equals(task.getTeacherId())) {
+            throw new BusinessException(HttpStatus.NOT_FOUND, "OCR task not found");
+        }
+        if (STATUS_CONFIRMED.equals(task.getStatus())) throw new BusinessException("已确认的 OCR 任务不能取消");
+        FileMetadata source = fileStorageService.getOwnedFileMetadata(teacherId, task.getFileId());
+        if (FileBusinessType.CERTIFICATE_OCR_STAGING.name().equals(source.getBusinessType())) {
+            fileStorageService.cancelCertificateOcrStaging(teacherId, source.getId());
+        }
+        task.setStatus("CANCELLED");
+        taskMapper.updateById(task);
+    }
+
+    @Transactional
+    public OcrTaskResponse retryTask(Long teacherId, Long taskId) {
+        OcrTask task = taskMapper.selectByIdForUpdate(taskId);
+        if (task == null || !teacherId.equals(task.getTeacherId())) {
+            throw new BusinessException(HttpStatus.NOT_FOUND, "OCR task not found");
+        }
+        if (STATUS_CONFIRMED.equals(task.getStatus()) || "CANCELLED".equals(task.getStatus())) {
+            throw new BusinessException("该 OCR 任务不能重新识别");
+        }
+        FileMetadata source = fileStorageService.getOwnedFileMetadata(teacherId, task.getFileId());
+        resultMapper.delete(new LambdaQueryWrapper<OcrResult>()
+                .eq(OcrResult::getTaskId, taskId).eq(OcrResult::getTeacherId, teacherId)
+                .ne(OcrResult::getStatus, RESULT_CONFIRMED));
+        runRecognition(task, source, OcrTargetType.valueOf(task.getTargetType()));
+        return getTask(teacherId, taskId);
+    }
+
+    @Scheduled(fixedDelayString = "PT1H")
+    @Transactional
+    public void cleanupExpiredCertificateStaging() {
+        java.time.LocalDateTime cutoff = java.time.LocalDateTime.now()
+                .minusHours(Math.max(1, properties.getStagingTtlHours()));
+        List<OcrTask> expired = taskMapper.selectList(new LambdaQueryWrapper<OcrTask>()
+                .eq(OcrTask::getTargetType, OcrTargetType.CERTIFICATE.name())
+                .in(OcrTask::getStatus, STATUS_PENDING, STATUS_SUCCEEDED, STATUS_FAILED)
+                .lt(OcrTask::getCreatedAt, cutoff));
+        for (OcrTask task : expired) {
+            try {
+                FileMetadata source = fileStorageService.getOwnedFileMetadata(task.getTeacherId(), task.getFileId());
+                if (FileBusinessType.CERTIFICATE_OCR_STAGING.name().equals(source.getBusinessType())) {
+                    fileStorageService.cancelCertificateOcrStaging(task.getTeacherId(), source.getId());
+                    task.setStatus("CANCELLED");
+                    taskMapper.updateById(task);
+                }
+            } catch (BusinessException ignored) {
+                // Already finalized or cleaned; no sensitive details are logged.
+            }
+        }
     }
 
     private void runRecognition(OcrTask task, FileMetadata metadata, OcrTargetType targetType) {
@@ -224,16 +297,18 @@ public class OcrService {
             case PATENT -> FileBusinessType.PATENT;
             case CERTIFICATE -> FileBusinessType.CERTIFICATE;
         };
-        if (!expected.name().equals(metadata.getBusinessType())) {
+        boolean certificateStaging = targetType == OcrTargetType.CERTIFICATE
+                && FileBusinessType.CERTIFICATE_OCR_STAGING.name().equals(metadata.getBusinessType());
+        if (!expected.name().equals(metadata.getBusinessType()) && !certificateStaging) {
             throw new BusinessException("File business type does not match OCR target type");
         }
     }
 
-    private Long createBusinessRecord(Long teacherId, OcrResult result) {
+    private Long createBusinessRecord(Long teacherId, OcrResult result, CompetitionCategory competitionCategory) {
         return switch (OcrTargetType.valueOf(result.getTargetType())) {
             case PAPER -> createPaper(teacherId, result);
             case PATENT -> createPatent(teacherId, result);
-            case CERTIFICATE -> createCertificate(teacherId, result);
+            case CERTIFICATE -> createCertificate(teacherId, result, competitionCategory);
         };
     }
 
@@ -257,7 +332,8 @@ public class OcrService {
         item.setUrl(blankToNull(result.getUrl()));
         item.setAbstractText(blankToNull(result.getAbstractText()));
         item.setKeywords(blankToNull(result.getKeywords()));
-        item.setSortOrder(0);
+        item.setSortOrder(nextSortOrder(paperMapper.selectList(new LambdaQueryWrapper<Paper>()
+                .eq(Paper::getTeacherId, teacherId)), Paper::getSortOrder));
         item.setIsPublic(Boolean.FALSE);
         paperMapper.insert(item);
         resourcePolicies.createDefault(teacherId, ResourceType.PAPER, item.getId());
@@ -287,14 +363,15 @@ public class OcrService {
         item.setAuthorizationDate(result.getAuthorizationDate());
         item.setInventors(blankToNull(result.getInventors()));
         item.setDescription(blankToNull(result.getDescription()));
-        item.setSortOrder(0);
+        item.setSortOrder(nextSortOrder(patentMapper.selectList(new LambdaQueryWrapper<Patent>()
+                .eq(Patent::getTeacherId, teacherId)), Patent::getSortOrder));
         item.setIsPublic(Boolean.FALSE);
         patentMapper.insert(item);
         resourcePolicies.createDefault(teacherId, ResourceType.PATENT, item.getId());
         return item.getId();
     }
 
-    private Long createCertificate(Long teacherId, OcrResult result) {
+    private Long createCertificate(Long teacherId, OcrResult result, CompetitionCategory competitionCategory) {
         if (!StringUtils.hasText(result.getCertificateName())) {
             return null;
         }
@@ -302,15 +379,21 @@ public class OcrService {
         item.setTeacherId(teacherId);
         item.setCertificateName(result.getCertificateName());
         item.setCertificateType(blankToNull(result.getCertificateType()));
-        item.setCompetitionCategory(CompetitionCategory.SECOND_CLASS.name());
+        item.setCompetitionCategory((competitionCategory == null
+                ? CompetitionCategory.SECOND_CLASS : competitionCategory).name());
         item.setIssuingAuthority(blankToNull(result.getIssuingAuthority()));
         item.setIssueDate(result.getIssueDate());
         item.setDescription(blankToNull(result.getDescription()));
-        item.setSortOrder(0);
+        item.setSortOrder(nextSortOrder(certificateMapper.selectList(new LambdaQueryWrapper<Certificate>()
+                .eq(Certificate::getTeacherId, teacherId)), Certificate::getSortOrder));
         item.setIsPublic(Boolean.FALSE);
         certificateMapper.insert(item);
         resourcePolicies.createDefault(teacherId, ResourceType.CERTIFICATE, item.getId());
         return item.getId();
+    }
+
+    private <T> int nextSortOrder(List<T> items, java.util.function.Function<T, Integer> reader) {
+        return items.stream().map(reader).filter(java.util.Objects::nonNull).max(Integer::compareTo).orElse(0) + 1;
     }
 
     private void applyRequest(OcrResult result, OcrResultRequest request) {

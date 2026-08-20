@@ -27,3 +27,15 @@ export async function deleteRecord(type, id) {
   const { data } = await http.delete(`${endpoints[type]}/${id}`)
   return data.data
 }
+
+export async function reorderRecords(type, orderedIds) {
+  await http.post(`/teacher/achievements/${type}/reorder`, { orderedIds })
+}
+
+export async function batchUpdateRecords(type, payload) {
+  await http.patch(`/teacher/achievements/${type}/batch`, payload)
+}
+
+export async function batchDeleteRecords(type, ids) {
+  await http.post(`/teacher/achievements/${type}/batch-delete`, { ids })
+}

@@ -105,6 +105,35 @@ public class ResourcePolicyService {
                 .orderByDesc(ResourceAccessPolicy::getResourceId));
     }
 
+    public List<ResourceAccessPolicy> updateOwnedPartial(
+            CurrentUser actor, ResourceType type, List<Long> ids,
+            Boolean viewAllowed, Boolean downloadAllowed, Boolean aiUseAllowed) {
+        if (ids == null || ids.isEmpty() || ids.size() > MAX_BATCH) {
+            throw new BusinessException("Policy update batch must contain 1-100 resources");
+        }
+        List<PolicyUpdate> updates = ids.stream().map(id -> {
+            ResourceAccessPolicy current = policies.selectOne(new LambdaQueryWrapper<ResourceAccessPolicy>()
+                    .eq(ResourceAccessPolicy::getResourceType, type.name())
+                    .eq(ResourceAccessPolicy::getResourceId, id));
+            if (current == null) throw new BusinessException("Resource access policy is unavailable");
+            return new PolicyUpdate(type.name(), id,
+                    viewAllowed == null ? Boolean.TRUE.equals(current.getViewAllowed()) : viewAllowed,
+                    downloadAllowed == null ? Boolean.TRUE.equals(current.getDownloadAllowed()) : downloadAllowed,
+                    aiUseAllowed == null ? Boolean.TRUE.equals(current.getAiUseAllowed()) : aiUseAllowed);
+        }).toList();
+        return updateOwned(actor, updates);
+    }
+
+    @Transactional
+    public void retireOwned(CurrentUser actor, ResourceType type, Long resourceId) {
+        Long owner = catalog.owner(type, resourceId);
+        if (!actor.teacherId().equals(owner)) throw new BusinessException("Resource not found");
+        revoke(type, resourceId, null);
+        policies.delete(new LambdaQueryWrapper<ResourceAccessPolicy>()
+                .eq(ResourceAccessPolicy::getResourceType, type.name())
+                .eq(ResourceAccessPolicy::getResourceId, resourceId));
+    }
+
     private void revoke(ResourceType type, Long resourceId, AccessPermission permission) {
         List<ResourceAccessGrant> active = grants.selectList(new LambdaQueryWrapper<ResourceAccessGrant>()
                 .eq(ResourceAccessGrant::getResourceType, type.name())

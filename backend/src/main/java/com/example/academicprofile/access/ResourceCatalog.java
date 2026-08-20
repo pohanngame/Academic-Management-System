@@ -205,6 +205,7 @@ public class ResourceCatalog {
         if (value instanceof Certificate item) return item.getTeacherId();
         if (value instanceof FileMetadata item
                 && !"AVATAR".equals(item.getBusinessType())
+                && !"CERTIFICATE_OCR_STAGING".equals(item.getBusinessType())
                 && !Boolean.TRUE.equals(item.getDeleted())) return item.getTeacherId();
         return null;
     }

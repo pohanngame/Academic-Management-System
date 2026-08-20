@@ -3,7 +3,9 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 
-import { createRecord, deleteRecord, listRecord, updateRecord } from '../../services/academicRecords'
+import { batchDeleteRecords, batchUpdateRecords, createRecord, listRecord, reorderRecords, updateRecord } from '../../services/academicRecords'
+import { cancelOcrTask, confirmCertificateOcrTask, retryOcrTask, updateOcrResult, uploadCertificateOcr } from '../../services/ocrTasks'
+import { buildBatchPatch, canReorderRecordCount, moveAdjacent, normalizeSelectedIds } from './achievementListRules'
 import {
   confirmPaperRatings,
   getJournalMetricSuggestions,
@@ -46,7 +48,18 @@ const bulkPreview = ref({ total: 0, page: 1, size: 20, items: [] })
 const bulkSelection = ref([])
 const selectedVenueName = ref('')
 const selectedVenueType = ref('')
+const selectedRows = ref([])
+const achievementTableRef = ref()
+const batchWorking = ref(false)
+const reorderWorking = ref(false)
+const deletingIds = ref(new Set())
+const batchForm = reactive({ isPublic: null, viewAllowed: null, downloadAllowed: null, aiUseAllowed: null })
+const quickOcrVisible = ref(false)
+const quickOcrWorking = ref(false)
+const quickOcrTask = ref(null)
+const quickOcrForm = reactive({ certificateName: '', certificateType: '', issuingAuthority: '', issueDate: '', description: '', competitionCategory: 'SECOND_CLASS' })
 let venueSearchTimer
+const reorderSupported = computed(() => canReorderRecordCount(records.value.length))
 
 const configs = {
   projects: {
@@ -179,7 +192,6 @@ function resetForm(record = null) {
   for (const field of config.value.fields) {
     form[field.key] = record?.[field.key] ?? field.defaultValue ?? (field.type === 'number' ? null : '')
   }
-  form.sortOrder = record?.sortOrder ?? 0
   form.isPublic = record?.isPublic ?? true
   form.ccfReferenceId = record?.ccfReferenceId ?? null
   form.ccfConfirmed = Boolean(record?.ccfConfirmedAt)
@@ -201,7 +213,6 @@ function buildPayload() {
     const value = form[field.key]
     payload[field.key] = value === '' ? null : value
   }
-  payload.sortOrder = form.sortOrder ?? 0
   payload.isPublic = form.isPublic ?? true
   payload.ccfReferenceId = form.ccfReferenceId
   payload.ccfConfirmed = Boolean(form.ccfConfirmed)
@@ -368,16 +379,132 @@ async function saveRecord() {
 }
 
 async function removeRecord(record) {
+  if (deletingIds.value.has(record.id)) return
   try {
-    await ElMessageBox.confirm('确认删除这条记录？', '删除确认', { type: 'warning' })
-    await deleteRecord(recordType.value, record.id)
+    await ElMessageBox.confirm('确认删除这条记录？关联附件将立即不可访问，历史安全审计仍会保留。', '删除确认', { type: 'warning' })
+    deletingIds.value = new Set([...deletingIds.value, record.id])
+    await batchDeleteRecords(recordType.value, [record.id])
     ElMessage.success('删除成功')
     await loadRecords()
   } catch (error) {
     if (error !== 'cancel') {
       ElMessage.error(error.response?.data?.message || '删除失败')
     }
+  } finally {
+    const next = new Set(deletingIds.value); next.delete(record.id); deletingIds.value = next
   }
+}
+
+async function moveRecord(row, direction) {
+  if (reorderWorking.value) return
+  if (!reorderSupported.value) {
+    ElMessage.warning('当前成果超过 100 条，暂不支持页面调整顺序')
+    return
+  }
+  const orderedIds = moveAdjacent(records.value.map((item) => item.id), row.id, direction)
+  if (orderedIds.every((id, index) => id === records.value[index].id)) return
+  reorderWorking.value = true
+  try {
+    await reorderRecords(recordType.value, orderedIds)
+    await loadRecords()
+  } catch (error) {
+    ElMessage.error(error.response?.data?.message || '调整顺序失败')
+  } finally { reorderWorking.value = false }
+}
+
+function onSelectionChange(rows) { selectedRows.value = rows }
+
+function clearSelection() {
+  achievementTableRef.value?.clearSelection()
+  selectedRows.value = []
+}
+
+async function applyBatch() {
+  if (batchWorking.value) return
+  try {
+    const ids = normalizeSelectedIds(selectedRows.value)
+    if (!ids.length) return
+    const patch = buildBatchPatch(batchForm)
+    if (!Object.keys(patch).length) return ElMessage.warning('请至少选择一项要修改的内容')
+    batchWorking.value = true
+    await batchUpdateRecords(recordType.value, { ids, ...patch })
+    ElMessage.success(`已更新 ${ids.length} 条记录`)
+    clearSelection()
+    await loadRecords()
+  } catch (error) { ElMessage.error(error.response?.data?.message || error.message || '批量修改失败') }
+  finally { batchWorking.value = false }
+}
+
+async function deleteBatch() {
+  if (batchWorking.value) return
+  try {
+    const ids = normalizeSelectedIds(selectedRows.value)
+    if (!ids.length) return
+    await ElMessageBox.confirm(`确认删除选中的 ${ids.length} 条记录？关联附件将立即不可访问，历史审计仍会保留。`, '批量删除确认', { type: 'warning' })
+    batchWorking.value = true
+    await batchDeleteRecords(recordType.value, ids)
+    ElMessage.success(`已删除 ${ids.length} 条记录`)
+    clearSelection()
+    await loadRecords()
+  } catch (error) { if (error !== 'cancel') ElMessage.error(error.response?.data?.message || '批量删除失败') }
+  finally { batchWorking.value = false }
+}
+
+function openQuickOcr() {
+  quickOcrTask.value = null
+  Object.assign(quickOcrForm, { certificateName: '', certificateType: '', issuingAuthority: '', issueDate: '', description: '', competitionCategory: 'SECOND_CLASS' })
+  quickOcrVisible.value = true
+}
+
+async function uploadQuickOcr(options) {
+  if (quickOcrWorking.value) return
+  quickOcrWorking.value = true
+  try {
+    const task = await uploadCertificateOcr(options.file)
+    quickOcrTask.value = task
+    const candidate = task.results?.[0] || {}
+    Object.assign(quickOcrForm, {
+      certificateName: candidate.certificateName || '', certificateType: candidate.certificateType || '',
+      issuingAuthority: candidate.issuingAuthority || '', issueDate: candidate.issueDate || '',
+      description: candidate.description || '', competitionCategory: 'SECOND_CLASS'
+    })
+    options.onSuccess?.(task)
+  } catch (error) { options.onError?.(error); ElMessage.error(error.response?.data?.message || '证书 OCR 识别失败，可重新上传或转为手工填写') }
+  finally { quickOcrWorking.value = false }
+}
+
+async function confirmQuickOcr() {
+  if (quickOcrWorking.value || !quickOcrTask.value?.results?.[0]) return
+  quickOcrWorking.value = true
+  try {
+    const result = quickOcrTask.value.results[0]
+    const { competitionCategory, ...certificateFields } = quickOcrForm
+    await updateOcrResult(result.id, certificateFields)
+    await confirmCertificateOcrTask(quickOcrTask.value.id, [result.id], quickOcrForm.competitionCategory)
+    ElMessage.success('证书已创建，原文件已加密关联')
+    quickOcrTask.value = null
+    quickOcrVisible.value = false
+    await loadRecords()
+  } catch (error) { ElMessage.error(error.response?.data?.message || '确认 OCR 结果失败') }
+  finally { quickOcrWorking.value = false }
+}
+
+async function cancelQuickOcr() {
+  const taskId = quickOcrTask.value?.id
+  quickOcrTask.value = null
+  if (taskId) await cancelOcrTask(taskId).catch(() => {})
+  quickOcrVisible.value = false
+}
+
+async function retryQuickOcr() {
+  if (quickOcrWorking.value || !quickOcrTask.value?.id) return
+  quickOcrWorking.value = true
+  try {
+    quickOcrTask.value = await retryOcrTask(quickOcrTask.value.id)
+    const candidate = quickOcrTask.value.results?.[0]
+    if (candidate) Object.assign(quickOcrForm, candidate, { competitionCategory: quickOcrForm.competitionCategory })
+  } catch (error) { ElMessage.error(error.response?.data?.message || '重新识别失败') }
+  finally { quickOcrWorking.value = false }
 }
 
 async function loadAttachments(recordId = editingId.value) {
@@ -491,13 +618,43 @@ onMounted(() => {
       </div>
       <div>
         <el-button v-if="recordType === 'papers'" @click="openBulkPreview()">历史论文智能补全</el-button>
+        <el-button v-if="recordType === 'certificates'" type="success" @click="openQuickOcr">上传证书并 OCR 识别</el-button>
         <el-button @click="savePolicies">保存内部权限</el-button>
         <el-button type="primary" @click="openCreateDrawer">新增</el-button>
       </div>
     </header>
 
-    <el-table class="achievement-table" v-loading="loading" :data="records" border>
-      <el-table-column prop="sortOrder" label="排序" width="90" />
+    <div class="batch-toolbar">
+      <strong>已选择 {{ selectedRows.length }} 条</strong>
+      <el-select v-model="batchForm.isPublic" clearable placeholder="公开状态">
+        <el-option label="公开" :value="true" /><el-option label="隐藏" :value="false" />
+      </el-select>
+      <el-select v-model="batchForm.viewAllowed" clearable placeholder="查看权限">
+        <el-option label="开启" :value="true" /><el-option label="关闭" :value="false" />
+      </el-select>
+      <el-select v-model="batchForm.downloadAllowed" clearable placeholder="下载申请">
+        <el-option label="开启" :value="true" /><el-option label="关闭" :value="false" />
+      </el-select>
+      <el-select v-model="batchForm.aiUseAllowed" clearable placeholder="AI 使用申请">
+        <el-option label="开启" :value="true" /><el-option label="关闭" :value="false" />
+      </el-select>
+      <el-button :disabled="!selectedRows.length" :loading="batchWorking" @click="applyBatch">批量修改</el-button>
+      <el-button type="danger" :disabled="!selectedRows.length" :loading="batchWorking" @click="deleteBatch">批量删除</el-button>
+      <el-button :disabled="!selectedRows.length" @click="clearSelection">清空选择</el-button>
+    </div>
+
+    <el-alert
+      v-if="!reorderSupported"
+      title="当前成果超过 100 条，暂不支持页面调整顺序；批量操作仍为单次最多 100 条。"
+      type="warning"
+      :closable="false"
+      show-icon
+      class="reorder-limit-alert"
+    />
+
+    <el-table ref="achievementTableRef" class="achievement-table" v-loading="loading" :data="records" border @selection-change="onSelectionChange">
+      <el-table-column type="selection" width="48" :selectable="(row) => selectedRows.some((item) => item.id === row.id) || selectedRows.length < 100" />
+      <el-table-column type="index" label="序号" width="70" :index="(index) => index + 1" />
       <el-table-column
         v-for="column in config.columns"
         :key="column"
@@ -532,10 +689,12 @@ onMounted(() => {
           </div>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="150" fixed="right">
-        <template #default="{ row }">
+      <el-table-column label="操作" width="270" fixed="right">
+        <template #default="{ row, $index }">
+          <el-button link :disabled="!reorderSupported || $index === 0 || reorderWorking" @click="moveRecord(row, -1)">上移</el-button>
+          <el-button link :disabled="!reorderSupported || $index === records.length - 1 || reorderWorking" @click="moveRecord(row, 1)">下移</el-button>
           <el-button link type="primary" @click="openEditDrawer(row)">编辑</el-button>
-          <el-button link type="danger" @click="removeRecord(row)">删除</el-button>
+          <el-button link type="danger" :loading="deletingIds.has(row.id)" @click="removeRecord(row)">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -642,9 +801,6 @@ onMounted(() => {
           </template>
         </section>
         <div class="form-row">
-          <el-form-item label="排序">
-            <el-input-number v-model="form.sortOrder" :min="0" controls-position="right" />
-          </el-form-item>
           <el-form-item label="公开状态">
             <el-switch v-model="form.isPublic" active-text="公开" inactive-text="隐藏" />
           </el-form-item>
@@ -696,6 +852,29 @@ onMounted(() => {
         <el-button type="primary" :loading="saving" @click="saveRecord">保存</el-button>
       </template>
     </el-drawer>
+
+    <el-dialog v-model="quickOcrVisible" title="证书 OCR 快速录入" width="620px" :close-on-click-modal="false" @closed="cancelQuickOcr">
+      <el-alert title="OCR 结果仅作为候选，确认前可修改；上传文件会使用现有附件加密机制保存。" type="info" :closable="false" />
+      <el-upload v-if="!quickOcrTask" drag :show-file-list="false" :http-request="uploadQuickOcr" accept=".pdf,.jpg,.jpeg,.png,.webp">
+        <div>选择或拖入证书 PDF/图片</div>
+        <template #tip>无需先创建证书；支持 PDF、JPG、JPEG、PNG、WEBP。</template>
+      </el-upload>
+      <el-form v-else label-position="top" class="quick-ocr-form">
+        <el-alert v-if="quickOcrTask.status === 'FAILED'" :title="quickOcrTask.errorMessage || '识别失败，请取消后重新上传或转为手工新增'" type="error" :closable="false" />
+        <el-form-item label="证书名称" required><el-input v-model="quickOcrForm.certificateName" /></el-form-item>
+        <el-form-item label="证书类型"><el-input v-model="quickOcrForm.certificateType" /></el-form-item>
+        <el-form-item label="赛事类别"><el-select v-model="quickOcrForm.competitionCategory"><el-option label="一类" value="FIRST_CLASS" /><el-option label="二类" value="SECOND_CLASS" /></el-select></el-form-item>
+        <el-form-item label="颁发机构"><el-input v-model="quickOcrForm.issuingAuthority" /></el-form-item>
+        <el-form-item label="颁发日期"><el-date-picker v-model="quickOcrForm.issueDate" type="date" value-format="YYYY-MM-DD" /></el-form-item>
+        <el-form-item label="说明"><el-input v-model="quickOcrForm.description" type="textarea" :rows="3" /></el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button :disabled="quickOcrWorking" @click="cancelQuickOcr">取消</el-button>
+        <el-button v-if="quickOcrTask?.status === 'FAILED'" :loading="quickOcrWorking" @click="retryQuickOcr">重新识别</el-button>
+        <el-button v-if="quickOcrTask?.status === 'FAILED'" @click="cancelQuickOcr(); openCreateDrawer()">转为手工填写</el-button>
+        <el-button v-if="quickOcrTask?.results?.length" type="primary" :loading="quickOcrWorking" :disabled="!quickOcrForm.certificateName" @click="confirmQuickOcr">确认并创建证书</el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog v-model="bulkDialogVisible" title="历史论文 CCF 智能补全" width="860px">
       <el-alert title="扫描只生成建议；只有明确选择并确认的论文才会更新，已有确认结果默认不会覆盖。" type="warning" :closable="false" />
@@ -773,6 +952,10 @@ onMounted(() => {
 .manual-ccf-grid { display: grid; grid-template-columns: 130px 130px 1fr; gap: 10px; align-items: center; }
 .manual-ccf-grid .el-checkbox { grid-column: 1 / -1; }
 .bulk-preview-table { margin: 14px 0; }
+.batch-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 14px; }
+.reorder-limit-alert { margin-bottom: 14px; }
+.batch-toolbar .el-select { width: 130px; }
+.quick-ocr-form { margin-top: 16px; }
 
 h2 {
   margin: 0 0 8px;

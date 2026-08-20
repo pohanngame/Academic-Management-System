@@ -120,6 +120,7 @@ public class FileStorageService {
         return fileMetadataMapper.selectList(new LambdaQueryWrapper<FileMetadata>()
                 .eq(FileMetadata::getTeacherId, teacherId)
                 .ne(FileMetadata::getBusinessType, FileBusinessType.AVATAR.name())
+                .ne(FileMetadata::getBusinessType, FileBusinessType.CERTIFICATE_OCR_STAGING.name())
                 .eq(FileMetadata::getDeleted, Boolean.FALSE)
                 .orderByDesc(FileMetadata::getId)
                 .last("LIMIT 100"));
@@ -136,6 +137,7 @@ public class FileStorageService {
                 new LambdaQueryWrapper<FileMetadata>()
                         .eq(FileMetadata::getTeacherId, teacherId)
                         .ne(FileMetadata::getBusinessType, FileBusinessType.AVATAR.name())
+                        .ne(FileMetadata::getBusinessType, FileBusinessType.CERTIFICATE_OCR_STAGING.name())
                         .eq(FileMetadata::getDeleted, Boolean.FALSE)
                         .like(normalized != null, FileMetadata::getOriginalName, normalized)
                         .orderByDesc(FileMetadata::getId));
@@ -170,10 +172,55 @@ public class FileStorageService {
 
     @Transactional
     public FileMetadata uploadFile(Long teacherId, FileBusinessType businessType, Long businessId, MultipartFile file) {
+        if (businessType == FileBusinessType.CERTIFICATE_OCR_STAGING) {
+            throw new BusinessException(HttpStatus.NOT_FOUND, "Files not found");
+        }
         validateBusinessOwnership(teacherId, businessType, businessId);
         validateFile(file, businessType);
 
         return storeValidatedFile(teacherId, businessType, businessId, file, null);
+    }
+
+    @Transactional
+    public FileMetadata uploadCertificateOcrStaging(Long teacherId, MultipartFile file) {
+        validateFile(file, FileBusinessType.CERTIFICATE_OCR_STAGING);
+        return storeValidatedFile(teacherId, FileBusinessType.CERTIFICATE_OCR_STAGING, null, file, null);
+    }
+
+    @Transactional
+    public void attachCertificateOcrStaging(Long teacherId, Long fileId, Long certificateId) {
+        FileMetadata metadata = getOwnedActiveFile(teacherId, fileId);
+        if (!FileBusinessType.CERTIFICATE_OCR_STAGING.name().equals(metadata.getBusinessType())) {
+            throw new BusinessException("OCR staging file is unavailable");
+        }
+        metadata.setBusinessType(FileBusinessType.CERTIFICATE.name());
+        metadata.setBusinessId(certificateId);
+        fileMetadataMapper.updateById(metadata);
+        policies.createDefault(teacherId, ResourceType.FILE_ATTACHMENT, fileId);
+    }
+
+    @Transactional
+    public void retireBusinessFiles(CurrentUser actor, FileBusinessType businessType, Long businessId) {
+        List<FileMetadata> items = fileMetadataMapper.selectList(new LambdaQueryWrapper<FileMetadata>()
+                .eq(FileMetadata::getTeacherId, actor.teacherId())
+                .eq(FileMetadata::getBusinessType, businessType.name())
+                .eq(FileMetadata::getBusinessId, businessId)
+                .eq(FileMetadata::getDeleted, Boolean.FALSE));
+        for (FileMetadata item : items) {
+            policies.retireOwned(actor, ResourceType.FILE_ATTACHMENT, item.getId());
+            item.setDeleted(Boolean.TRUE);
+            fileMetadataMapper.updateById(item);
+        }
+    }
+
+    @Transactional
+    public void cancelCertificateOcrStaging(Long teacherId, Long fileId) {
+        FileMetadata metadata = getOwnedActiveFile(teacherId, fileId);
+        if (!FileBusinessType.CERTIFICATE_OCR_STAGING.name().equals(metadata.getBusinessType())) {
+            throw new BusinessException(HttpStatus.NOT_FOUND, "OCR staging file not found");
+        }
+        metadata.setDeleted(Boolean.TRUE);
+        fileMetadataMapper.updateById(metadata);
     }
 
     @Transactional
@@ -274,7 +321,8 @@ public class FileStorageService {
         metadata.setDeleted(Boolean.FALSE);
         try {
             fileMetadataMapper.insert(metadata);
-            if (businessType != FileBusinessType.AVATAR) {
+            if (businessType != FileBusinessType.AVATAR
+                    && businessType != FileBusinessType.CERTIFICATE_OCR_STAGING) {
                 policies.createDefault(teacherId, ResourceType.FILE_ATTACHMENT, metadata.getId());
             }
             registerRollbackCleanup(targetPath);
@@ -308,11 +356,13 @@ public class FileStorageService {
 
     public FileDownload downloadFile(Long teacherId, Long fileId) {
         FileMetadata metadata = getOwnedActiveFile(teacherId, fileId);
+        rejectOcrStaging(metadata);
         return toDownload(metadata);
     }
 
     public AuthorizedFileDownload readFile(CurrentUser actor, Long fileId, AccessPermission permission) {
         FileMetadata metadata = getActiveFile(fileId);
+        rejectOcrStaging(metadata);
         ResourceAuthorizationService.AccessDecision decision = null;
         if (metadata.getBusinessId() == null) {
             if (!actor.teacherId().equals(metadata.getTeacherId())) {
@@ -475,10 +525,17 @@ public class FileStorageService {
     @Transactional
     public void deleteFile(Long teacherId, Long fileId) {
         FileMetadata metadata = getOwnedActiveFile(teacherId, fileId);
+        rejectOcrStaging(metadata);
         metadata.setDeleted(Boolean.TRUE);
         fileMetadataMapper.updateById(metadata);
         if (FileBusinessType.AVATAR.name().equals(metadata.getBusinessType())) {
             teacherProfileService.clearAvatarFileId(teacherId, fileId);
+        }
+    }
+
+    private void rejectOcrStaging(FileMetadata metadata) {
+        if (FileBusinessType.CERTIFICATE_OCR_STAGING.name().equals(metadata.getBusinessType())) {
+            throw new BusinessException(HttpStatus.NOT_FOUND, "File not found");
         }
     }
 
@@ -530,6 +587,7 @@ public class FileStorageService {
                 }
                 teacherProfileService.getByTeacherId(teacherId);
             }
+            case CERTIFICATE_OCR_STAGING -> throw new BusinessException(HttpStatus.NOT_FOUND, "Files not found");
         }
     }
 
@@ -552,7 +610,7 @@ public class FileStorageService {
         String fileExt = extensionOf(originalName);
         Map<String, Set<String>> allowedTypes = switch (businessType) {
             case AVATAR -> IMAGE_ALLOWED_MIME_TYPES;
-            case PAPER, PATENT, CERTIFICATE -> ATTACHMENT_ALLOWED_MIME_TYPES;
+            case PAPER, PATENT, CERTIFICATE, CERTIFICATE_OCR_STAGING -> ATTACHMENT_ALLOWED_MIME_TYPES;
             case AI_WORD_TEMPLATE -> AI_WORD_TEMPLATE_ALLOWED_MIME_TYPES;
         };
         Set<String> allowedMimeTypes = allowedTypes.get(fileExt);

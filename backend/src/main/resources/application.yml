@@ -73,6 +73,7 @@ app:
     base-url: ${OCR_BASE_URL:http://127.0.0.1:8866}
     timeout-seconds: ${OCR_TIMEOUT_SECONDS:60}
     min-pdf-text-length: ${OCR_MIN_PDF_TEXT_LENGTH:80}
+    staging-ttl-hours: ${OCR_STAGING_TTL_HOURS:24}
 
 springdoc:
   swagger-ui:

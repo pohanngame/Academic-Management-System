@@ -48,6 +48,7 @@ class FileStorageServiceTest {
     private EncryptedFileCodec encryptedFiles;
     private FileStorageService service;
     private FileStorageProperties properties;
+    private ResourcePolicyService resourcePolicies;
 
     @BeforeEach
     void setUp() {
@@ -59,6 +60,7 @@ class FileStorageServiceTest {
         properties.setTempDir(tempDir.resolve("runtime").toString());
         properties.setEncryptionKeyFile(tempDir.resolve("secrets/file-encryption.key").toString());
         encryptedFiles = new EncryptedFileCodec(new FileEncryptionKeyManager(properties));
+        resourcePolicies = mock(ResourcePolicyService.class);
         TeacherProfile profile = new TeacherProfile();
         profile.setId(1L);
         when(teacherProfileService.getByTeacherId(1L)).thenReturn(profile);
@@ -72,7 +74,28 @@ class FileStorageServiceTest {
                 new WordTemplateService(),
                 encryptedFiles,
                 mock(ResourceAuthorizationService.class),
-                mock(ResourcePolicyService.class));
+                resourcePolicies);
+    }
+
+    @Test
+    void certificateOcrStagingIsEncryptedAndDoesNotCreateSharePolicy() throws IOException {
+        java.util.concurrent.atomic.AtomicReference<FileMetadata> saved = new java.util.concurrent.atomic.AtomicReference<>();
+        when(fileMetadataMapper.insert(any(FileMetadata.class))).thenAnswer(invocation -> {
+            FileMetadata value = invocation.getArgument(0); value.setId(77L); saved.set(value); return 1;
+        });
+        when(fileMetadataMapper.selectById(77L)).thenAnswer(invocation -> saved.get());
+        byte[] plaintext = "%PDF-1.7 synthetic certificate".getBytes();
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "certificate.pdf", "application/pdf", plaintext);
+
+        FileMetadata metadata = service.uploadCertificateOcrStaging(1L, file);
+        byte[] stored = Files.readAllBytes(tempDir.resolve(metadata.getStoragePath()));
+
+        assertEquals(FileBusinessType.CERTIFICATE_OCR_STAGING.name(), metadata.getBusinessType());
+        assertEquals("ENCRYPTED", metadata.getCiphertextStatus());
+        assertFalse(java.util.Arrays.equals(plaintext, stored));
+        verify(resourcePolicies, never()).createDefault(any(), any(), any());
+        assertThrows(BusinessException.class, () -> service.downloadFile(1L, metadata.getId()));
     }
 
     @Test

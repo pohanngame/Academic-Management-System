@@ -5,5 +5,6 @@ public enum FileBusinessType {
     PAPER,
     PATENT,
     CERTIFICATE,
+    CERTIFICATE_OCR_STAGING,
     AI_WORD_TEMPLATE
 }
