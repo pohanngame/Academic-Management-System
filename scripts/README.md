@@ -10,7 +10,7 @@
 只校验、不写入任何目标：
 
 ```bash
-python3 scripts/verify-backup.py /secure/path/backup.apbackup --max-schema 15
+python3 scripts/verify-backup.py /secure/path/backup.apbackup
 bash scripts/restore-backup.sh --backup /secure/path/backup.apbackup --verify-only
 bash scripts/restore-staged-backup.sh --id <UUID> --verify-only
 ```

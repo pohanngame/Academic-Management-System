@@ -367,6 +367,7 @@ public class AiGenerationService {
         modules.put("papers", "论文/学术成果");
         modules.put("patents", "专利");
         modules.put("certificates", "证书");
+        modules.put("timetableOccupancy", "课表占用");
         return modules;
     }
 

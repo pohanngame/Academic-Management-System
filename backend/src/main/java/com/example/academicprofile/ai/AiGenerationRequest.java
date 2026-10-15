@@ -17,11 +17,20 @@ public record AiGenerationRequest(
         Map<String, List<String>> selectedFields,
         String outputMode,
         @Size(max = 20) List<Long> selectedAttachmentIds,
-        String templateType) {
+        String templateType,
+        TimetableQuery timetableQuery) {
+
+    /**
+     * 课表占用查询参数。只有选中 timetableOccupancy 时才应传；
+     * 未选中时载荷不得含课表。
+     */
+    public record TimetableQuery(
+            String semesterCode, Integer week, Long majorId, List<Long> teacherIds) {
+    }
 
     public AiGenerationRequest(
             Long templateFileId, String templateRequirement, List<String> selectedModules) {
-        this(templateFileId, templateRequirement, selectedModules, null, null, null, null, null, "AI_DRAFT", null, null);
+        this(templateFileId, templateRequirement, selectedModules, null, null, null, null, null, "AI_DRAFT", null, null, null);
     }
 
     public AiGenerationRequest(
@@ -36,6 +45,6 @@ public record AiGenerationRequest(
             String outputMode,
             List<Long> selectedAttachmentIds) {
         this(templateFileId, templateRequirement, selectedModules, sourceTeacherIds, startYear, endYear,
-                competitionCategories, selectedFields, outputMode, selectedAttachmentIds, null);
+                competitionCategories, selectedFields, outputMode, selectedAttachmentIds, null, null);
     }
 }

@@ -32,9 +32,12 @@ import com.example.academicprofile.backup.RestoreStagingController;
 import com.example.academicprofile.backup.RestoreStagingService;
 import com.example.academicprofile.backup.SystemMaintenanceLock;
 import com.example.academicprofile.security.JwtAuthenticationFilter;
+import com.example.academicprofile.timetable.TimetableTeacherLinkController;
+import com.example.academicprofile.timetable.TimetableTeacherLinkService;
 
 @WebMvcTest(
-        controllers = {AdminController.class, BackupController.class, RestoreStagingController.class},
+        controllers = {AdminController.class, BackupController.class, RestoreStagingController.class,
+                TimetableTeacherLinkController.class},
         excludeAutoConfiguration = UserDetailsServiceAutoConfiguration.class)
 @Import(SecurityConfig.class)
 class AdminAuthorizationTest {
@@ -56,6 +59,8 @@ class AdminAuthorizationTest {
     private RestoreStagingService restoreStaging;
     @MockBean
     private SystemMaintenanceLock maintenanceLock;
+    @MockBean
+    private TimetableTeacherLinkService timetableTeacherLinks;
 
     @BeforeEach
     void passThroughJwtFilter() throws Exception {
@@ -70,6 +75,7 @@ class AdminAuthorizationTest {
     void unauthenticatedAdminRequestReturns401() throws Exception {
         mvc.perform(get("/api/admin/overview")).andExpect(status().isUnauthorized());
         mvc.perform(get("/api/admin/restores/staged")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/admin/timetable/teacher-links")).andExpect(status().isUnauthorized());
     }
 
     @ParameterizedTest
@@ -84,6 +90,14 @@ class AdminAuthorizationTest {
         when(overview.get()).thenReturn(new AdminOverviewResponse(
                 0, 0, 0, 0, 0, 0, 0, null));
         mvc.perform(get("/api/admin/overview").with(user("admin").roles("SUPER_ADMIN")))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void superAdminCanListTimetableTeacherLinks() throws Exception {
+        when(timetableTeacherLinks.list()).thenReturn(java.util.List.of());
+        mvc.perform(get("/api/admin/timetable/teacher-links")
+                        .with(user("admin").roles("SUPER_ADMIN")))
                 .andExpect(status().isOk());
     }
 
@@ -109,6 +123,13 @@ class AdminAuthorizationTest {
                 Arguments.of(post("/api/admin/backups/export")
                         .contentType(MediaType.APPLICATION_JSON).content("{\"currentPassword\":\"not-real\"}")),
                 Arguments.of(get("/api/admin/restores/staged")),
+                Arguments.of(get("/api/admin/timetable/teacher-links")),
+                Arguments.of(post("/api/admin/timetable/teacher-links")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"sourceName\":\"张三\",\"teacherId\":1}")),
+                Arguments.of(org.springframework.test.web.servlet.request.MockMvcRequestBuilders
+                        .delete("/api/admin/timetable/teacher-links")
+                        .param("sourceName", "张三")),
                 Arguments.of(post("/api/admin/restores/staged")
                         .contentType(MediaType.MULTIPART_FORM_DATA)),
                 Arguments.of(org.springframework.test.web.servlet.request.MockMvcRequestBuilders

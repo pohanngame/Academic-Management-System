@@ -53,7 +53,7 @@ v2 将数据库、密文 uploads、AI 配置主密钥和附件加密主密钥放
 
 ```bash
 cd /srv/academic-profile
-python3 scripts/verify-backup.py /受控路径/backup.apbackup --max-schema 15
+python3 scripts/verify-backup.py /受控路径/backup.apbackup
 
 # 等价的恢复脚本只读入口
 scripts/restore-backup.sh --backup /受控路径/backup.apbackup --verify-only

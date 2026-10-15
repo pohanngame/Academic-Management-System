@@ -33,3 +33,17 @@ test('dashboard route access is role isolated', () => {
   assert.equal(isDashboardPathAllowed('/dashboard/admin/organization', 'TEACHER'), false)
   assert.equal(isDashboardPathAllowed('/dashboard/access', 'TEACHER'), true)
 })
+
+test('timetable pages are reachable by both roles', () => {
+  for (const path of ['/dashboard/timetable-sync', '/dashboard/timetable-common-free']) {
+    assert.equal(isDashboardPathAllowed(path, 'TEACHER'), true)
+    assert.equal(isDashboardPathAllowed(path, 'SUPER_ADMIN'), true)
+  }
+})
+
+test('sharing timetable pages does not open the admin area to teachers', () => {
+  assert.equal(isDashboardPathAllowed('/dashboard/admin', 'TEACHER'), false)
+  assert.equal(isDashboardPathAllowed('/dashboard/admin/organization', 'TEACHER'), false)
+  // 共享名单只放行课表两页，不能顺带放行 admin 下的其它路径。
+  assert.equal(isDashboardPathAllowed('/dashboard/admin/timetable-sync', 'TEACHER'), false)
+})

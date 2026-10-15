@@ -8,7 +8,7 @@ FORCE=false
 BACKUP=""
 PROJECT_DIR=""
 PROJECT=""
-MAX_SCHEMA=15
+MAX_SCHEMA_OVERRIDE=""
 TEST_FAIL_AT="${RESTORE_TEST_FAIL_AT:-}"
 TEST_CONFIRMATION="${RESTORE_TEST_CONFIRMATION:-}"
 
@@ -16,17 +16,31 @@ usage() {
   echo "Usage: $0 --backup FILE [--verify-only] [--project-dir DIR --project-name NAME [--force]]" >&2
 }
 
+# 默认上限唯一来源：verify-backup.py 的 DEFAULT_MAX_SCHEMA，由 --help 输出解析。
+default_max_schema() {
+  python3 "$SCRIPT_DIR/verify-backup.py" --help 2>&1 \
+    | sed -n 's/.*default: \([0-9]\{1,\}\).*/\1/p' | head -n 1
+}
+
 while (($#)); do
   case "$1" in
     --backup) BACKUP="${2:-}"; shift 2 ;;
     --project-dir) PROJECT_DIR="${2:-}"; shift 2 ;;
     --project-name) PROJECT="${2:-}"; shift 2 ;;
-    --max-schema) MAX_SCHEMA="${2:-}"; shift 2 ;;
+    --max-schema) MAX_SCHEMA_OVERRIDE="${2:-}"; shift 2 ;;
     --verify-only) VERIFY_ONLY=true; shift ;;
     --force) FORCE=true; shift ;;
     *) usage; exit 2 ;;
   esac
 done
+
+if [[ -n "$MAX_SCHEMA_OVERRIDE" ]]; then
+  MAX_SCHEMA="$MAX_SCHEMA_OVERRIDE"
+else
+  MAX_SCHEMA="$(default_max_schema)"
+  [[ -n "$MAX_SCHEMA" ]] \
+    || { echo "Restore failed: cannot resolve the default schema limit" >&2; exit 2; }
+fi
 
 [[ -n "$BACKUP" ]] || { usage; exit 2; }
 BACKUP="$(cd -- "$(dirname -- "$BACKUP")" && pwd -P)/$(basename -- "$BACKUP")"

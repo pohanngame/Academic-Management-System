@@ -33,6 +33,9 @@ import org.springframework.util.StringUtils;
 
 @Component
 public class AiDataCollector {
+    /** 课表占用模块：只在本次请求选中时采集，未选中时载荷不含任何课表数据。 */
+    static final String TIMETABLE_MODULE = "timetableOccupancy";
+
     private static final Set<String> INTERNAL_FIELDS = Set.of(
             "id", "userId", "teacherId", "avatarFileId", "createdAt", "updatedAt",
             "sortOrder", "isPublic", "publicEnabled", "publicSlug", "fieldVisibilityConfig");
@@ -50,7 +53,9 @@ public class AiDataCollector {
                     "abstractText", "keywords", "ccfRank", "ccfCategoryName", "ccfDataYear", "jcrDataYear",
                     "journalImpactFactor", "jcrQuartile", "jcrSubject")),
             Map.entry("patents", Set.of("patentName", "patentNumber", "patentType", "status", "applicationDate", "authorizationDate", "inventors", "description")),
-            Map.entry("certificates", Set.of("certificateName", "certificateType", "competitionCategory", "issuingAuthority", "issueDate", "description")));
+            Map.entry("certificates", Set.of("certificateName", "certificateType", "competitionCategory", "issuingAuthority", "issueDate", "description")),
+            Map.entry(TIMETABLE_MODULE, Set.of("teacherName", "courseName", "roomName",
+                    "dayOfWeek", "slotCode", "week", "occupancyText")));
     private static final Map<String, ResourceType> RESOURCE_TYPES = Map.ofEntries(
             Map.entry("academicQualifications", ResourceType.ACADEMIC_QUALIFICATION),
             Map.entry("teachingAreas", ResourceType.TEACHING_AREA),
@@ -71,6 +76,7 @@ public class AiDataCollector {
     private final ObjectMapper objectMapper;
     private final FileMetadataMapper files;
     private final OcrTaskMapper ocrTasks;
+    private final com.example.academicprofile.timetable.TimetableCommonFreeService commonFreeService;
 
     public AiDataCollector(
             TeacherProfileService teacherProfileService,
@@ -80,7 +86,8 @@ public class AiDataCollector {
             ResourceAccessAuditService audits,
             ObjectMapper objectMapper,
             FileMetadataMapper files,
-            OcrTaskMapper ocrTasks) {
+            OcrTaskMapper ocrTasks,
+            com.example.academicprofile.timetable.TimetableCommonFreeService commonFreeService) {
         this.teacherProfileService = teacherProfileService;
         this.profileBlockService = profileBlockService;
         this.achievementService = achievementService;
@@ -89,6 +96,37 @@ public class AiDataCollector {
         this.objectMapper = objectMapper;
         this.files = files;
         this.ocrTasks = ocrTasks;
+        this.commonFreeService = commonFreeService;
+    }
+
+    /**
+     * 课表占用：只取本次查询结果。未提供 timetableQuery 时返回空，不回退到任何默认范围。
+     * 与公共空闲查询复用同一条判定逻辑，不写 teaching_course。
+     */
+    private List<Map<String, Object>> collectTimetableOccupancy(AiGenerationRequest request) {
+        AiGenerationRequest.TimetableQuery query = request.timetableQuery();
+        if (query == null || query.semesterCode() == null || query.semesterCode().isBlank()
+                || query.week() == null) {
+            return List.of();
+        }
+        var response = commonFreeService.query(
+                query.semesterCode(), query.week(), query.majorId(),
+                query.teacherIds() == null ? List.of() : query.teacherIds());
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (var slot : response.slots()) {
+            for (var entry : slot.occupancies()) {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("teacherName", entry.teacherDisplayName());
+                row.put("courseName", entry.courseName());
+                row.put("roomName", entry.roomName());
+                row.put("dayOfWeek", slot.dayOfWeek());
+                row.put("slotCode", slot.slotCode());
+                row.put("week", response.week());
+                row.put("occupancyText", entry.occupancyText());
+                rows.add(row);
+            }
+        }
+        return rows;
     }
 
     public Map<String, Object> collect(Long teacherId, List<String> modules) {
@@ -120,6 +158,14 @@ public class AiDataCollector {
                             selected);
                     profile.put("sourceTeacherId", sourceTeacherId);
                     rows.add(profile);
+                    continue;
+                }
+                if (TIMETABLE_MODULE.equals(module)) {
+                    // 只带本次查询结果；不同教师维度循环，避免重复。
+                    if (!sourceTeacherId.equals(teachers.get(0))) {
+                        continue;
+                    }
+                    rows.addAll(collectTimetableOccupancy(request));
                     continue;
                 }
                 ResourceType type = RESOURCE_TYPES.get(module);

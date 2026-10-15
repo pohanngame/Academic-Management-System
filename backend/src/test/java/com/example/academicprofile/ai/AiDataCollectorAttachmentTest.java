@@ -52,7 +52,8 @@ class AiDataCollectorAttachmentTest {
                 audits,
                 new ObjectMapper(),
                 files,
-                ocrTasks);
+                ocrTasks,
+                mock(com.example.academicprofile.timetable.TimetableCommonFreeService.class));
     }
 
     @Test
@@ -102,7 +103,8 @@ class AiDataCollectorAttachmentTest {
         AchievementService achievements = mock(AchievementService.class);
         collector = new AiDataCollector(
                 mock(TeacherProfileService.class), mock(ProfileBlockService.class), achievements,
-                authorization, audits, new ObjectMapper(), files, ocrTasks);
+                authorization, audits, new ObjectMapper(), files, ocrTasks,
+                mock(com.example.academicprofile.timetable.TimetableCommonFreeService.class));
         Paper granted = new Paper();
         granted.setId(41L);
         granted.setTeacherId(8L);

@@ -23,6 +23,7 @@ Spring Boot、Vue 3、MySQL 8.4 和 Docker Compose，教师数据及第三方 AI
 - SUPER_ADMIN 恢复助手：安全暂存恢复包并生成服务器执行命令
 - Linux 离线校验、恢复和故障回滚工具
 - 由 SUPER_ADMIN 导入的 CCF 2026 本地匹配，以及期刊 JCR 分区和影响因子手工快照
+- 教务课表按学期同步；仅保存已映射教师，支持按专业或指定教师查询公共空闲并导出 Excel
 
 ## 快速启动
 
@@ -122,7 +123,7 @@ CCF 2026 JSON 后，教师可按期刊或会议类型本地匹配，并把确认
 ## 项目目录
 
 ```text
-backend/       Spring Boot 后端和 Flyway V1–V16
+backend/       Spring Boot 后端和 Flyway V1–V18
 frontend/      Vue 3 + Element Plus
 docker/        OCR、PDF 等服务及 Docker 操作说明
 docs/          管理员、部署、备份恢复文档
@@ -159,3 +160,4 @@ docker compose --profile full config --quiet
 - [完整备份与恢复](docs/system-backup-restore.md)
 - [Docker 操作手册](docker/README.md)
 - [脚本与隔离测试](scripts/README.md)
+- [教务课表与公共空闲查询](docs/timetable-common-free.md)

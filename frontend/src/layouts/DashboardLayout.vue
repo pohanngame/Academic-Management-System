@@ -1,6 +1,7 @@
 <script setup>
 import {
   Briefcase,
+  Calendar,
   Collection,
   DataAnalysis,
   Download,
@@ -10,6 +11,7 @@ import {
   Notebook,
   OfficeBuilding,
   Reading,
+  Refresh,
   Monitor,
   Setting,
   SwitchButton,
@@ -36,6 +38,14 @@ let mediaQuery
 
 const activeMenu = computed(() => route.path)
 const homeRoute = computed(() => homeRouteForRole(authStore.user?.role))
+const organizationPath = '/dashboard/admin/organization'
+
+// 教师映射入口与“专业与业务角色”指向同一页面，不新建页面。
+function openTeacherMapping() {
+  if (route.path !== organizationPath) {
+    router.push(organizationPath)
+  }
+}
 const menuCollapsed = computed(() => collapsed.value || smallScreen.value)
 const asideWidth = computed(() => sidebarWidth(menuCollapsed.value))
 
@@ -154,6 +164,16 @@ function handleLogout() {
             <span>资料访问与授权</span>
           </el-menu-item>
         </el-menu-item-group>
+        <el-menu-item-group title="课表">
+          <el-menu-item index="/dashboard/timetable-sync">
+            <el-icon><Refresh /></el-icon>
+            <span>课表同步</span>
+          </el-menu-item>
+          <el-menu-item index="/dashboard/timetable-common-free">
+            <el-icon><Calendar /></el-icon>
+            <span>公共空闲查询</span>
+          </el-menu-item>
+        </el-menu-item-group>
         <el-menu-item-group v-if="authStore.user?.role === 'SUPER_ADMIN'" title="系统管理">
           <el-menu-item index="/dashboard/admin">
             <el-icon><Monitor /></el-icon>
@@ -162,6 +182,16 @@ function handleLogout() {
           <el-menu-item index="/dashboard/admin/organization">
             <el-icon><OfficeBuilding /></el-icon>
             <span>专业与业务角色</span>
+          </el-menu-item>
+          <!-- 教师映射入口：复用已有页面，不新建页面。index 必须与上一项不同，
+               否则两项会同时高亮；跳转靠 data-path。 -->
+          <el-menu-item
+            :index="`${organizationPath}#teacher-mapping`"
+            :data-path="organizationPath"
+            @click="openTeacherMapping"
+          >
+            <el-icon><Connection /></el-icon>
+            <span>课表教师映射</span>
           </el-menu-item>
         </el-menu-item-group>
       </el-menu>

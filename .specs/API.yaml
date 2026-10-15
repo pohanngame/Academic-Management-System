@@ -1,0 +1,42 @@
+openapi: 3.0.3
+info:
+  title: 学术档案管理系统现状基线
+  version: "16"
+  description: >
+    只标注已上线入口，供课表增量避让。详细请求体以现有 Controller 为准。
+    课表新接口见 timetable-API.yaml，不得复用下列路径表达周课表。
+paths:
+  /api/health:
+    get:
+      summary: 健康检查
+  /api/auth/register:
+    post:
+      summary: 注册 TEACHER
+  /api/auth/login:
+    post:
+      summary: 登录
+  /api/teacher/profile:
+    get:
+      summary: 当前教师资料
+  /api/teacher/teaching-courses:
+    get:
+      summary: 授课成果列表
+      description: 档案记录，不是教务周课表。
+  /api/export/fields:
+    get:
+      summary: 成果导出字段
+  /api/export/excel:
+    post:
+      summary: 导出成果 Excel
+  /api/export/word:
+    post:
+      summary: 导出成果 Word
+  /api/ai/modules:
+    get:
+      summary: AI 材料模块白名单
+      description: teachingCourses 表示授课成果，不能塞入周课表。
+  /api/admin/organization:
+    get:
+      summary: 专业与业务角色管理
+servers:
+  - url: /

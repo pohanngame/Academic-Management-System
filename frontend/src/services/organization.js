@@ -29,3 +29,18 @@ export async function updateTeacherOrganization(teacherId, payload) {
   const { data } = await http.put(`/admin/organization/teachers/${teacherId}`, payload)
   return data.data
 }
+
+export async function getTimetableTeacherLinks() {
+  const { data } = await http.get('/admin/timetable/teacher-links')
+  return data.data
+}
+
+export async function saveTimetableTeacherLink(payload) {
+  const { data } = await http.post('/admin/timetable/teacher-links', payload)
+  return data.data
+}
+
+export async function deleteTimetableTeacherLink(sourceName) {
+  const { data } = await http.delete('/admin/timetable/teacher-links', { params: { sourceName } })
+  return data.data
+}

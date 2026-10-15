@@ -18,6 +18,8 @@ import OcrTaskView from '../views/ocr/OcrTaskView.vue'
 import ProfileBlockListView from '../views/profileBlocks/ProfileBlockListView.vue'
 import PublicProfileView from '../views/public/PublicProfileView.vue'
 import ProfileEditView from '../views/teacher/ProfileEditView.vue'
+import TimetableSyncView from '../views/timetable/TimetableSyncView.vue'
+import CommonFreeView from '../views/timetable/CommonFreeView.vue'
 import {
   homeRouteForRole,
   isDashboardPathAllowed
@@ -152,6 +154,16 @@ const router = createRouter({
           path: 'access',
           name: 'access-management',
           component: AccessManagementView
+        },
+        {
+          path: 'timetable-sync',
+          name: 'timetable-sync',
+          component: TimetableSyncView
+        },
+        {
+          path: 'timetable-common-free',
+          name: 'timetable-common-free',
+          component: CommonFreeView
         },
         {
           path: 'admin',

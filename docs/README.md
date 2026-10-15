@@ -11,6 +11,7 @@
 7. [期刊与会议智能评级](publication-venue-ranking.md)：CCF 2026 管理员导入、匹配规则、JCR 手工指标和批量补全。
 8. [AI 生成与 Word 模板](ai-word-templates.md)：内置模板、自定义 DOCX、授权来源和导出规则。
 9. [脚本说明](../scripts/README.md)：生产恢复脚本与测试专用资产。
+10. [教务课表与公共空闲查询](timetable-common-free.md)：课表同步、教师映射、公共空闲查询和 Excel 导出。
 
 ## 文档用途
 
@@ -25,6 +26,7 @@
 | `ai-word-templates.md` | 教师/运维 | 系统模板、自定义 DOCX、确认追加、测试生成、所有权和历史重放 |
 | `docker/README.md` | 开发与运维 | 五服务、volume、构建、重启、日志 |
 | `scripts/README.md` | 恢复演练人员 | 脚本参数、测试目录、隔离矩阵 |
+| `timetable-common-free.md` | 教师/SUPER_ADMIN | 课表同步、姓名映射、公共空闲查询和 Excel 导出 |
 
 ## 当前数据和安全边界
 

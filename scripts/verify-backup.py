@@ -14,7 +14,7 @@ import sys
 import zipfile
 
 SUPPORTED_FORMAT_VERSIONS = {1, 2}
-DEFAULT_MAX_SCHEMA = 15
+DEFAULT_MAX_SCHEMA = 18
 REQUIRED_FILES = {"manifest.json", "database.sql", "secrets/ai-config.key"}
 
 
@@ -134,7 +134,12 @@ def extract_verified(backup: Path, target: Path, max_schema: int = DEFAULT_MAX_S
 def main() -> int:
     parser = argparse.ArgumentParser(description="Verify an academic-profile migration backup")
     parser.add_argument("backup", type=Path)
-    parser.add_argument("--max-schema", type=int, default=DEFAULT_MAX_SCHEMA)
+    parser.add_argument(
+        "--max-schema",
+        type=int,
+        default=DEFAULT_MAX_SCHEMA,
+        help="highest accepted Flyway schema version (default: %(default)s)",
+    )
     parser.add_argument("--extract", type=Path)
     args = parser.parse_args()
     try:

@@ -61,6 +61,11 @@ app:
     connect-timeout-seconds: ${AI_CONNECT_TIMEOUT_SECONDS:10}
     timeout-seconds: ${AI_TIMEOUT_SECONDS:60}
     encryption-key-file: ${AI_ENCRYPTION_KEY_FILE:./data/secrets/ai-config.key}
+  timetable:
+    enabled: ${TIMETABLE_SYNC_ENABLED:true}
+    auth-base-url: ${TIMETABLE_AUTH_BASE_URL:https://authserver.dgpt.edu.cn}
+    jw-base-url: ${TIMETABLE_JW_BASE_URL:https://jw.dgpt.edu.cn}
+    timeout-seconds: ${TIMETABLE_TIMEOUT_SECONDS:30}
   document-conversion:
     enabled: ${DOCUMENT_CONVERSION_ENABLED:false}
     base-url: ${DOCUMENT_CONVERSION_BASE_URL:http://127.0.0.1:3000}

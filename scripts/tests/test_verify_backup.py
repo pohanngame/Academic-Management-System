@@ -132,9 +132,9 @@ class VerifyBackupTest(unittest.TestCase):
             VERIFY.verify_backup(self.package(schema=12), max_schema=11)
 
     def test_default_schema_limit_matches_current_application(self):
-        self.assertEqual("15", VERIFY.verify_backup(self.package(schema=15))["flywaySchemaVersion"])
+        self.assertEqual("18", VERIFY.verify_backup(self.package(schema=18))["flywaySchemaVersion"])
         with self.assertRaises(VERIFY.VerificationError):
-            VERIFY.verify_backup(self.package(schema=16))
+            VERIFY.verify_backup(self.package(schema=19))
 
     def test_modified_sql_with_recomputed_hash_still_verifies(self):
         package = self.package()
@@ -218,7 +218,7 @@ class RestoreScriptSecurityTest(unittest.TestCase):
 
     def test_acceptance_matrix_uses_current_schema_limit(self):
         self.assertNotIn("--max-schema 11", self.acceptance_script)
-        self.assertEqual(2, self.acceptance_script.count("--max-schema 15"))
+        self.assertNotIn("--max-schema", self.acceptance_script)
 
     def test_cold_ocr_startup_has_a_consistent_restore_window(self):
         self.assertIn("start_period: 900s", self.production_compose)

@@ -7,13 +7,18 @@ import {
   getOrganizationTeachers,
   getTeacherOrganization,
   updateMajor,
-  updateTeacherOrganization
+  updateTeacherOrganization,
+  getTimetableTeacherLinks,
+  saveTimetableTeacherLink,
+  deleteTimetableTeacherLink
 } from '../../services/organization'
 
 const majors = ref([])
 const teachers = ref([])
 const selectedTeacher = ref(null)
 const teacherForm = reactive({ majorId: null, roles: ['FULL_TIME_TEACHER'], leaderMajorId: null })
+const timetableLinks = ref([])
+const timetableForm = reactive({ sourceName: '', teacherId: null })
 const majorDialog = ref(false)
 const editingMajor = ref(null)
 const majorForm = reactive({ code: '', name: '', active: true })
@@ -26,7 +31,33 @@ const roles = [
 ]
 
 async function load() {
-  ;[majors.value, teachers.value] = await Promise.all([getMajors(true), getOrganizationTeachers()])
+  ;[majors.value, teachers.value, timetableLinks.value] = await Promise.all([
+    getMajors(true), getOrganizationTeachers(), getTimetableTeacherLinks()
+  ])
+}
+
+async function saveTimetableLink() {
+  try {
+    await saveTimetableTeacherLink({
+      sourceName: timetableForm.sourceName.trim(),
+      teacherId: timetableForm.teacherId
+    })
+    timetableForm.sourceName = ''
+    timetableForm.teacherId = null
+    timetableLinks.value = await getTimetableTeacherLinks()
+    ElMessage.success('课表姓名映射已保存')
+  } catch (error) {
+    ElMessage.error(error.response?.data?.message || '课表映射保存失败')
+  }
+}
+
+async function removeTimetableLink(sourceName) {
+  try {
+    await deleteTimetableTeacherLink(sourceName)
+    timetableLinks.value = await getTimetableTeacherLinks()
+  } catch (error) {
+    ElMessage.error(error.response?.data?.message || '课表映射删除失败')
+  }
 }
 
 async function selectTeacher(id) {
@@ -84,6 +115,24 @@ onMounted(load)
         <el-table-column label="操作"><template #default="{ row }"><el-button link type="primary" @click="editMajor(row)">修改</el-button></template></el-table-column>
       </el-table>
     </el-card>
+    <el-card id="teacher-mapping" class="teacher-card">
+      <template #header>课表教师映射</template>
+      <p class="mapping-note">课表姓名必须与教务总表第一列完全一致。保存所属专业不会建立这个映射。</p>
+      <el-form class="mapping-form" label-position="top">
+        <el-form-item label="课表姓名"><el-input v-model="timetableForm.sourceName" maxlength="128" /></el-form-item>
+        <el-form-item label="对应系统教师">
+          <el-select v-model="timetableForm.teacherId" filterable placeholder="选择教师">
+            <el-option v-for="teacher in teachers" :key="teacher.teacherId" :label="teacher.displayName" :value="teacher.teacherId" />
+          </el-select>
+        </el-form-item>
+        <el-button type="primary" :disabled="!timetableForm.sourceName.trim() || !timetableForm.teacherId" @click="saveTimetableLink">保存映射</el-button>
+      </el-form>
+      <el-table :data="timetableLinks">
+        <el-table-column prop="sourceName" label="课表姓名" />
+        <el-table-column prop="teacherDisplayName" label="系统教师" />
+        <el-table-column label="操作"><template #default="{ row }"><el-button link type="danger" @click="removeTimetableLink(row.sourceName)">删除</el-button></template></el-table-column>
+      </el-table>
+    </el-card>
     <el-card class="teacher-card">
       <template #header>教师专业与角色</template>
       <el-select v-model="selectedTeacher" filterable placeholder="选择教师" @change="selectTeacher">
@@ -110,4 +159,6 @@ h2 { margin: 0 0 8px; }
 p { margin: 0; color: #6b7280; }
 .teacher-card { margin-top: 20px; }
 .teacher-card .el-form { margin-top: 20px; }
+.mapping-note { margin-bottom: 16px; }
+.mapping-form { max-width: 480px; margin-bottom: 16px; }
 </style>

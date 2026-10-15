@@ -313,7 +313,7 @@ printf '{"currentPassword":"%s"}' "$ADMIN_PASSWORD" \
       -o /tmp/source.apbackup \
       http://127.0.0.1:8080/api/admin/backups/export
 source_dc exec -T backend cat /tmp/source.apbackup > "$BACKUP"
-python3 "$OPERATIONS_DIR/verify-backup.py" "$BACKUP" --max-schema 15 >/dev/null
+python3 "$OPERATIONS_DIR/verify-backup.py" "$BACKUP" >/dev/null
 
 SOURCE_COUNTS="$(
   printf "SELECT (SELECT COUNT(*) FROM user),(SELECT COUNT(*) FROM teacher_profile),(SELECT COUNT(*) FROM project),(SELECT COUNT(*) FROM file_metadata),(SELECT COUNT(*) FROM ai_provider_config),(SELECT COUNT(*) FROM ai_generation_task);\n" \
@@ -455,7 +455,7 @@ with zipfile.ZipFile(source) as current:
                 database if info.filename == "database.sql" else current.read(info),
             )
 PY
-python3 "$OPERATIONS_DIR/verify-backup.py" "$MALICIOUS" --max-schema 15 >/dev/null
+python3 "$OPERATIONS_DIR/verify-backup.py" "$MALICIOUS" >/dev/null
 
 if RESTORE_TEST_CONFIRMATION="RESTORE $TARGET_PROJECT" \
     "$OPERATIONS_DIR/restore-backup.sh" \

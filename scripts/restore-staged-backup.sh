@@ -73,7 +73,7 @@ chmod 600 "$LOCAL_PACKAGE"
 [[ -s "$LOCAL_PACKAGE" ]] \
   || { echo "Staged restore failed: copied package is empty" >&2; exit 3; }
 
-python3 "$SCRIPT_DIR/verify-backup.py" "$LOCAL_PACKAGE" --max-schema 15
+python3 "$SCRIPT_DIR/verify-backup.py" "$LOCAL_PACKAGE"
 if "$VERIFY_ONLY"; then
   echo "Staged restore package verification succeeded."
   exit 0
